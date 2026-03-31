@@ -116,6 +116,7 @@ interface GameState {
   hvy: number;
   hAngle: number;
   hShootCooldown: number;
+  muzzleFlashTimer: number;
   hBombs: number;
   bombRechargeTimer: number;
   level: number;
@@ -519,6 +520,7 @@ function initGameState(hero: HeroName): GameState {
     hvy: 0,
     hAngle: 0,
     hShootCooldown: 0,
+    muzzleFlashTimer: 0,
     hBombs: 3,
     bombRechargeTimer: 0,
     level: 1,
@@ -547,6 +549,7 @@ function initGameState(hero: HeroName): GameState {
 function heroShoot(s: GameState) {
   if (s.hShootCooldown > 0) return;
   s.hShootCooldown = 0.18;
+  s.muzzleFlashTimer = 0.1;
   const vx = Math.cos(s.hAngle) * BULLET_SPEED;
   const vy = Math.sin(s.hAngle) * BULLET_SPEED;
   s.bullets.push({
@@ -1004,6 +1007,7 @@ export default function GameCanvas() {
       s.bombRechargeTimer = 0;
     }
     s.hShootCooldown = Math.max(0, s.hShootCooldown - dt);
+    s.muzzleFlashTimer = Math.max(0, s.muzzleFlashTimer - dt);
     if ((keys.has("Space") || keys.has("Enter")) && s.hShootCooldown <= 0)
       heroShoot(s);
     if (keys.has("KeyB") && s.hBombs > 0) {
@@ -1374,6 +1378,54 @@ export default function GameCanvas() {
       ctx.fill();
     }
     ctx.restore();
+
+    // Muzzle flash
+    if (s.muzzleFlashTimer > 0) {
+      const flashIntensity = s.muzzleFlashTimer / 0.1;
+      const muzzleOffset = 44;
+      const muzzleX =
+        heroSx +
+        Math.cos(s.hAngle) * (heroFacingLeft ? -muzzleOffset : muzzleOffset);
+      const muzzleY = heroSy + Math.sin(s.hAngle) * muzzleOffset - 10;
+      ctx.save();
+      ctx.globalAlpha = flashIntensity * 0.9;
+      // Outer glow
+      const grad = ctx.createRadialGradient(
+        muzzleX,
+        muzzleY,
+        0,
+        muzzleX,
+        muzzleY,
+        28,
+      );
+      grad.addColorStop(0, "rgba(255,255,180,1)");
+      grad.addColorStop(0.3, "rgba(255,180,0,0.85)");
+      grad.addColorStop(0.7, "rgba(255,80,0,0.4)");
+      grad.addColorStop(1, "rgba(255,0,0,0)");
+      ctx.beginPath();
+      ctx.arc(muzzleX, muzzleY, 28, 0, Math.PI * 2);
+      ctx.fillStyle = grad;
+      ctx.fill();
+      // Bright core
+      ctx.beginPath();
+      ctx.arc(muzzleX, muzzleY, 7, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(255,255,220,1)";
+      ctx.fill();
+      // Star spikes
+      ctx.strokeStyle = "rgba(255,220,80,0.85)";
+      ctx.lineWidth = 2;
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI * 2;
+        ctx.beginPath();
+        ctx.moveTo(muzzleX, muzzleY);
+        ctx.lineTo(
+          muzzleX + Math.cos(a) * 22 * flashIntensity,
+          muzzleY + Math.sin(a) * 22 * flashIntensity,
+        );
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
 
     // Bullets (realistic bullet shape)
     for (const b of s.bullets) {
