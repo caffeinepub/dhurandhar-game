@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { ScoreEntry } from "../backend";
 import { useActor } from "./useActor";
+
+export type ScoreEntry = [string, bigint];
 
 export function useLeaderboard() {
   const { actor, isFetching } = useActor();

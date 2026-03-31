@@ -8,20 +8,24 @@
 
 import { IDL } from '@icp-sdk/core/candid';
 
-export const ScoreEntry = IDL.Record({ 'name' : IDL.Text, 'score' : IDL.Nat });
-
 export const idlService = IDL.Service({
-  'getLeaderboard' : IDL.Func([], [IDL.Vec(ScoreEntry)], ['query']),
+  'getLeaderboard' : IDL.Func(
+      [],
+      [IDL.Vec(IDL.Tuple(IDL.Text, IDL.Nat))],
+      ['query'],
+    ),
   'submitScore' : IDL.Func([IDL.Text, IDL.Nat], [], []),
 });
 
 export const idlInitArgs = [];
 
 export const idlFactory = ({ IDL }) => {
-  const ScoreEntry = IDL.Record({ 'name' : IDL.Text, 'score' : IDL.Nat });
-  
   return IDL.Service({
-    'getLeaderboard' : IDL.Func([], [IDL.Vec(ScoreEntry)], ['query']),
+    'getLeaderboard' : IDL.Func(
+        [],
+        [IDL.Vec(IDL.Tuple(IDL.Text, IDL.Nat))],
+        ['query'],
+      ),
     'submitScore' : IDL.Func([IDL.Text, IDL.Nat], [], []),
   });
 };

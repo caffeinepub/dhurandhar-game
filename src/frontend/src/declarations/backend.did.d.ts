@@ -10,9 +10,13 @@ import type { ActorMethod } from '@icp-sdk/core/agent';
 import type { IDL } from '@icp-sdk/core/candid';
 import type { Principal } from '@icp-sdk/core/principal';
 
-export interface ScoreEntry { 'name' : string, 'score' : bigint }
 export interface _SERVICE {
-  'getLeaderboard' : ActorMethod<[], Array<ScoreEntry>>,
+  'getLeaderboard' : ActorMethod<[], Array<[string, bigint]>>,
+  /**
+   * / Submit a new high score with player's name and score.
+   * / If the score is higher than the existing one or if player has no score yet,
+   * / it replaces the previous score.
+   */
   'submitScore' : ActorMethod<[string, bigint], undefined>,
 }
 export declare const idlService: IDL.ServiceClass;

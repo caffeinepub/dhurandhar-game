@@ -89,17 +89,18 @@ export class ExternalBlob {
         return this;
     }
 }
-export interface ScoreEntry {
-    name: string;
-    score: bigint;
-}
 export interface backendInterface {
-    getLeaderboard(): Promise<Array<ScoreEntry>>;
+    getLeaderboard(): Promise<Array<[string, bigint]>>;
+    /**
+     * / Submit a new high score with player's name and score.
+     * / If the score is higher than the existing one or if player has no score yet,
+     * / it replaces the previous score.
+     */
     submitScore(name: string, score: bigint): Promise<void>;
 }
 export class Backend implements backendInterface {
     constructor(private actor: ActorSubclass<_SERVICE>, private _uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, private _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, private processError?: (error: unknown) => never){}
-    async getLeaderboard(): Promise<Array<ScoreEntry>> {
+    async getLeaderboard(): Promise<Array<[string, bigint]>> {
         if (this.processError) {
             try {
                 const result = await this.actor.getLeaderboard();

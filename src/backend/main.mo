@@ -1,58 +1,81 @@
+import Migration "migration";
 import Text "mo:core/Text";
-import Order "mo:core/Order";
-import List "mo:core/List";
-import Runtime "mo:core/Runtime";
+import Nat "mo:core/Nat";
+import Array "mo:core/Array";
 
+(with migration = Migration.run)
 actor {
-  type ScoreEntry = {
-    name : Text;
-    score : Nat;
+  let MAX_LEADERBOARD_SIZE = 10;
+  var leaderboard : [(Text, Nat)] = [];
+
+  /// Submit a new high score with player's name and score.
+  /// If the score is higher than the existing one or if player has no score yet,
+  /// it replaces the previous score.
+  public shared ({ caller }) func submitScore(name : Text, score : Nat) : async () {
+    assert (name.size() > 0);
+
+    if (tryUpdateExistingScore(name, score)) {
+      return;
+    };
+
+    let newLeaderboard = mergeNewScore(name, score);
+    leaderboard := Array.tabulate(
+      Nat.min(MAX_LEADERBOARD_SIZE, newLeaderboard.size()),
+      func(i) { newLeaderboard[i] },
+    );
   };
 
-  module ScoreEntry {
-    public func compare(entry1 : ScoreEntry, entry2 : ScoreEntry) : Order.Order {
-      switch (Nat.compare(entry2.score, entry1.score)) {
-        case (#equal) { Text.compare(entry1.name, entry2.name) };
-        case (order) { order };
+  func tryUpdateExistingScore(name : Text, newScore : Nat) : Bool {
+    switch (findScoreIndex(name)) {
+      case (null) { false };
+      case (?index) {
+        let (_, oldScore) = leaderboard[index];
+        if (newScore > oldScore) {
+          leaderboard := updateScoreAtIndex(index, newScore);
+        };
+        true;
       };
     };
   };
 
-  let highScoresList = List.empty<ScoreEntry>();
+  func findScoreIndex(name : Text) : ?Nat {
+    leaderboard.findIndex(func((n, _)) { n == name });
+  };
 
-  func updateOrAddScore(name : Text, score : Nat) {
-    var found = false;
-    let newScores = highScoresList.map<ScoreEntry, ScoreEntry>(
-      func(entry) {
-        if (entry.name == name) {
-          found := true;
-          if (score > entry.score) {
-            return { name; score };
-          };
-        };
-        entry;
-      }
+  func updateScoreAtIndex(index : Nat, newScore : Nat) : [(Text, Nat)] {
+    Array.tabulate(
+      leaderboard.size(),
+      func(i) {
+        if (i == index) {
+          let (name, _oldScore) = leaderboard[i];
+          (name, newScore);
+        } else { leaderboard[i] };
+      },
     );
+  };
 
-    if (found) {
-      highScoresList.clear();
-      highScoresList.addAll(newScores.values());
+  /// Inserts the new score in the correct position in the leaderboard based on score.
+  func mergeNewScore(name : Text, score : Nat) : [(Text, Nat)] {
+    var inserted = false;
+    var insertionIndex = leaderboard.size();
+
+    let result = leaderboard.map(func((_, s)) { if (s < score and not inserted) { inserted := true; score } else { s } });
+
+    if (not inserted) {
+      leaderboard.concat([(name, score)]);
     } else {
-      highScoresList.add({ name; score });
+      let finalResult = Array.tabulate(
+        result.size(),
+        func(i) {
+          let (n, _) = leaderboard[i];
+          if (result[i] == score) { (name, score) } else { (n, result[i]) };
+        },
+      );
+      finalResult;
     };
   };
 
-  public shared ({ caller }) func submitScore(name : Text, score : Nat) : async () {
-    if (name.size() == 0) { Runtime.trap("Name cannot be empty") };
-    switch (highScoresList.find(func(entry) { entry.name == name })) {
-      case (?existing) { if (existing.score >= score) { return } };
-      case (null) { () };
-    };
-    updateOrAddScore(name, score);
-  };
-
-  public query ({ caller }) func getLeaderboard() : async [ScoreEntry] {
-    let sortedScores = highScoresList.toArray().sort();
-    sortedScores.sliceToArray(0, Nat.min(10, sortedScores.size()));
+  public query ({ caller }) func getLeaderboard() : async [(Text, Nat)] {
+    leaderboard;
   };
 };

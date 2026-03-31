@@ -1,176 +1,260 @@
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useSubmitScore } from "../hooks/useQueries";
 
-// ── Constants ────────────────────────────────────────────────────────
-const CW = 950;
-const CH = 600;
-const WW = 3000;
-const WH = 3000;
-const WCX = 1500;
-const WCY = 1500;
+// ── Constants ──────────────────────────────────────────────────────────────────
+const MAP_W = 3000;
+const MAP_H = 3000;
 const PLAYER_SPEED = 3.5;
-const ZONE_SHRINK_INTERVAL = 30000;
-const INITIAL_ZONE_RADIUS = 1450;
+const BULLET_SPEED = 8;
+const BULLET_RANGE = 450;
+const ENEMY_FLEE_SPEED = 2.8;
+const ENEMY_PATROL_SPEED = 1.2;
+const ENEMY_FIGHT_SPEED = 1.6;
+const FLEE_DIST = 300;
+const FIGHT_DIST = 120;
+const ENEMY_SHOOT_INTERVAL = 1200;
+const BOSS_SHOOT_INTERVAL = 800;
+const PLAYER_SHOOT_COOLDOWN = 300;
+const BOMB_FUSE_TIME = 1800; // ms before explosion
+const BOMB_RADIUS = 160;
+const BOMB_REPLENISH_FRAMES = 1800; // 30s at 60fps
 
-const WEAPONS = [
-  {
-    name: "SWORD",
-    damage: 25,
-    cooldown: 800,
-    ranged: false,
-    color: "#C9A35A",
-    projSpeed: 0,
-  },
-  {
-    name: "BOW & ARROW",
-    damage: 20,
-    cooldown: 1200,
-    ranged: true,
-    color: "#8B6914",
-    projSpeed: 8,
-  },
-  {
-    name: "SPEAR",
-    damage: 35,
-    cooldown: 2000,
-    ranged: true,
-    color: "#A0522D",
-    projSpeed: 7,
-  },
-];
+type EnemyState = "idle" | "flee" | "fight";
+type GamePhase = "menu" | "select" | "playing" | "win" | "gameover";
 
-const HEROES = [
-  {
-    name: "Humza Ali Mazari",
-    role: "Rebel Fighter",
-    color: "#FF6D00",
-    shadowColor: "#BF360C",
-    weapon: 0,
-  },
-  {
-    name: "Ajay Sanyal",
-    role: "Spy Agent",
-    color: "#3949AB",
-    shadowColor: "#1A237E",
-    weapon: 1,
-  },
-];
-
-// ── Types ────────────────────────────────────────────────────────────
 interface Vec2 {
   x: number;
   y: number;
-}
-interface Player {
-  x: number;
-  y: number;
-  hp: number;
-  maxHp: number;
-  weapon: number;
-  lastAttack: number;
-  angle: number;
-  alive: boolean;
-}
-interface Enemy {
-  id: number;
-  type: "soldier" | "boss1" | "boss2" | "boss3" | "boss4";
-  name: string;
-  x: number;
-  y: number;
-  hp: number;
-  maxHp: number;
-  damage: number;
-  speed: number;
-  lastAttack: number;
-  waypointX: number;
-  waypointY: number;
-  alive: boolean;
-  flashTimer: number;
-  deathAlpha: number;
-  lastProjectile: number;
-  radius: number;
-}
-interface NPC {
-  id: number;
-  name: string;
-  x: number;
-  y: number;
-  color: string;
-  crownColor: string;
-  dialogue: string;
-  hasCrown: boolean;
-}
-interface Projectile {
-  id: number;
-  x: number;
-  y: number;
-  vx: number;
-  vy: number;
-  type: "arrow" | "spear" | "enemy";
-  damage: number;
-  distTraveled: number;
-  maxDist: number;
-  alive: boolean;
-  fromPlayer: boolean;
-}
-interface Loot {
-  id: number;
-  x: number;
-  y: number;
-  type: "sword" | "bow" | "spear" | "health";
-  alive: boolean;
-}
-interface Tree {
-  x: number;
-  y: number;
-  r: number;
-  color: string;
 }
 interface Building {
   x: number;
   y: number;
   w: number;
   h: number;
-  type: "hut" | "wall";
 }
-interface GameStateRef {
-  camX: number;
-  camY: number;
-  mouseX: number;
-  mouseY: number;
-  keys: Set<string>;
-  kills: number;
-  score: number;
-  zoneRadius: number;
-  zoneTargetRadius: number;
-  zoneLastShrink: number;
-  lastZoneDamage: number;
-  startTime: number;
-  lastFrame: number;
-  lastSurviveCheck: number;
-  dialogue: { name: string; text: string } | null;
-  projCounter: number;
-  blinkTimer: number;
-  bossElimMsg: { text: string; until: number } | null;
+interface PalmTree {
+  x: number;
+  y: number;
+}
+interface Bullet {
+  id: number;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  dist: number;
+  fromPlayer: boolean;
+  alive: boolean;
+}
+interface Enemy {
+  id: number;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  hp: number;
+  maxHp: number;
+  state: EnemyState;
+  isBoss: boolean;
+  name: string;
+  zone: string;
+  colorAccent: string;
+  uniform: string;
+  shootTimer: number;
+  stateTimer: number;
+  patrolTarget: Vec2;
+  alive: boolean;
+  flashTimer: number;
+}
+interface Particle {
+  id: number;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  life: number;
+  maxLife: number;
+  color: string;
+  size: number;
+}
+interface DustParticle {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  alpha: number;
+  size: number;
+}
+interface Bomb {
+  id: number;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  alive: boolean;
+  landed: boolean;
+  fuseTimer: number;
+}
+interface BurningBuilding {
+  buildingIdx: number;
+  fireTimer: number;
+  maxFireTime: number;
 }
 
-type GamePhase =
-  | "start"
-  | "charSelect"
-  | "playing"
-  | "paused"
-  | "gameover"
-  | "victory";
-
-// ── Helpers ───────────────────────────────────────────────────────────
-function dist(ax: number, ay: number, bx: number, by: number) {
-  return Math.hypot(ax - bx, ay - by);
+interface NPC {
+  id: number;
+  x: number;
+  y: number;
+  type: "civilian_man" | "civilian_woman" | "ally_soldier";
+  hint: string;
+  facing: number;
+  hintVisible: boolean;
 }
-function circleAABB(
+
+interface GameState {
+  player: {
+    x: number;
+    y: number;
+    vx: number;
+    vy: number;
+    hp: number;
+    facing: number;
+    shootTimer: number;
+    animFrame: number;
+    animTimer: number;
+    isMoving: boolean;
+  };
+  enemies: Enemy[];
+  bullets: Bullet[];
+  particles: Particle[];
+  dustParticles: DustParticle[];
+  buildings: Building[];
+  palmTrees: PalmTree[];
+  bombs: Bomb[];
+  burningBuildings: BurningBuilding[];
+  bombCount: number;
+  bombCooldown: number;
+  bombId: number;
+  shakeTimer: number;
+  camera: Vec2;
+  bulletId: number;
+  particleId: number;
+  frameCount: number;
+  lastTime: number;
+  bossesDefeated: number;
+  currentLevel: number;
+  levelTransition: boolean;
+  levelTransitionTimer: number;
+  allBossesDefeatedOnce: boolean;
+  npcs: NPC[];
+  keysDown: Set<string>;
+  joystick: {
+    active: boolean;
+    baseX: number;
+    baseY: number;
+    dx: number;
+    dy: number;
+    touchId: number | null;
+  };
+  muted: boolean;
+  audioCtx: AudioContext | null;
+}
+
+const HEROES = [
+  {
+    name: "Humza Ali Mazari",
+    role: "Rebel Fighter",
+    bodyColor: "#1565C0",
+    legColor: "#0D47A1",
+    accentColor: "#FFA000",
+  },
+  {
+    name: "Ajay Sanyal",
+    role: "Spy Agent",
+    bodyColor: "#2E7D32",
+    legColor: "#1B5E20",
+    accentColor: "#FFEE58",
+  },
+];
+
+const BOSS_DATA = [
+  {
+    name: "Rehman Dakait",
+    zone: "south",
+    colorAccent: "#C62828",
+    uniform: "#8D6E63",
+    spawnX: MAP_W / 2,
+    spawnY: MAP_H * 0.85,
+  },
+  {
+    name: "SP Aslam Choudhury",
+    zone: "west",
+    colorAccent: "#1565C0",
+    uniform: "#37474F",
+    spawnX: MAP_W * 0.12,
+    spawnY: MAP_H / 2,
+  },
+  {
+    name: "Major Iqbal",
+    zone: "north",
+    colorAccent: "#827717",
+    uniform: "#558B2F",
+    spawnX: MAP_W / 2,
+    spawnY: MAP_H * 0.12,
+  },
+  {
+    name: "Jameel Jamali",
+    zone: "east",
+    colorAccent: "#212121",
+    uniform: "#4A148C",
+    spawnX: MAP_W * 0.88,
+    spawnY: MAP_H / 2,
+  },
+];
+
+const GRUNT_ZONE_POSITIONS: Array<Vec2> = [
+  { x: MAP_W * 0.25, y: MAP_H * 0.3 },
+  { x: MAP_W * 0.75, y: MAP_H * 0.3 },
+  { x: MAP_W * 0.5, y: MAP_H * 0.5 },
+  { x: MAP_W * 0.2, y: MAP_H * 0.7 },
+  { x: MAP_W * 0.8, y: MAP_H * 0.7 },
+];
+
+function seededRand(seed: number) {
+  let s = seed;
+  return () => {
+    s = (s * 16807 + 0) % 2147483647;
+    return (s - 1) / 2147483646;
+  };
+}
+
+function generateMap() {
+  const rand = seededRand(42);
+  const buildings: Building[] = [];
+  const palmTrees: PalmTree[] = [];
+
+  // City grid of buildings
+  for (let i = 0; i < 80; i++) {
+    const w = 60 + rand() * 120;
+    const h = 60 + rand() * 120;
+    const x = 100 + rand() * (MAP_W - 300);
+    const y = 100 + rand() * (MAP_H - 300);
+    buildings.push({ x, y, w, h });
+  }
+
+  // Palm trees
+  for (let i = 0; i < 60; i++) {
+    palmTrees.push({
+      x: 50 + rand() * (MAP_W - 100),
+      y: 50 + rand() * (MAP_H - 100),
+    });
+  }
+
+  return { buildings, palmTrees };
+}
+
+function circleRect(
   cx: number,
-  cy: number,
+  _cy: number,
   cr: number,
   rx: number,
   ry: number,
@@ -178,2396 +262,4570 @@ function circleAABB(
   rh: number,
 ) {
   const nearX = Math.max(rx, Math.min(cx, rx + rw));
-  const nearY = Math.max(ry, Math.min(cy, ry + rh));
-  return dist(cx, cy, nearX, nearY) < cr;
-}
-function drawHealthBar(
-  ctx: CanvasRenderingContext2D,
-  cx: number,
-  cy: number,
-  w: number,
-  hp: number,
-  maxHp: number,
-) {
-  const pct = Math.max(0, hp / maxHp);
-  ctx.fillStyle = "#222";
-  ctx.fillRect(cx - w / 2, cy, w, 5);
-  ctx.fillStyle = pct > 0.5 ? "#4CAF50" : pct > 0.25 ? "#FF9800" : "#F44336";
-  ctx.fillRect(cx - w / 2, cy, w * pct, 5);
-  ctx.strokeStyle = "#000";
-  ctx.lineWidth = 0.5;
-  ctx.strokeRect(cx - w / 2, cy, w, 5);
-}
-function drawCrown(
-  ctx: CanvasRenderingContext2D,
-  cx: number,
-  cy: number,
-  size: number,
-  color: string,
-) {
-  ctx.fillStyle = color;
-  ctx.beginPath();
-  ctx.moveTo(cx - size, cy);
-  ctx.lineTo(cx - size, cy - size * 1.2);
-  ctx.lineTo(cx - size * 0.3, cy - size * 0.6);
-  ctx.lineTo(cx, cy - size * 1.5);
-  ctx.lineTo(cx + size * 0.3, cy - size * 0.6);
-  ctx.lineTo(cx + size, cy - size * 1.2);
-  ctx.lineTo(cx + size, cy);
-  ctx.closePath();
-  ctx.fill();
+  const nearY = Math.max(ry, Math.min(_cy, ry + rh));
+  const dx = cx - nearX;
+  const dy = _cy - nearY;
+  return dx * dx + dy * dy < cr * cr;
 }
 
-// ── Seeded random ─────────────────────────────────────────────────────
-function mkRng(seed: number) {
-  let s = seed;
-  return () => {
-    s = (s * 1664525 + 1013904223) & 0xffffffff;
-    return (s >>> 0) / 0xffffffff;
+function dist(ax: number, ay: number, bx: number, by: number) {
+  const dx = ax - bx;
+  const dy = ay - by;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+function normalize(dx: number, dy: number): Vec2 {
+  const len = Math.sqrt(dx * dx + dy * dy);
+  if (len === 0) return { x: 0, y: 0 };
+  return { x: dx / len, y: dy / len };
+}
+
+function getLevelConfig(level: number) {
+  return {
+    gruntCount: Math.min(4 + level * 2, 20),
+    health: 40 + level * 20,
+    speed: Math.min(1.2 + level * 0.15, 3.0),
+    aggressionDist: Math.min(180 + level * 30, 600),
+    shootInterval: Math.max(1200 - level * 100, 250),
+    bossLevel:
+      [3, 5, 7, 9].indexOf(level) >= 0 ? [3, 5, 7, 9].indexOf(level) : -1,
   };
 }
 
-// ── World generation ──────────────────────────────────────────────────
-function genWorld(rng: () => number) {
-  const trees: Tree[] = [];
-  const buildings: Building[] = [];
-  const loot: Loot[] = [];
+function playSound(ctx: AudioContext | null, muted: boolean, type: string) {
+  if (!ctx || muted) return;
+  try {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    const now = ctx.currentTime;
 
-  for (let i = 0; i < 160; i++) {
-    const angle = rng() * Math.PI * 2;
-    const radius = 1200 + rng() * 1200;
-    const x = WCX + Math.cos(angle) * radius;
-    const y = WCY + Math.sin(angle) * radius;
-    if (x > 50 && x < WW - 50 && y > 50 && y < WH - 50) {
-      trees.push({
-        x,
-        y,
-        r: 12 + rng() * 10,
-        color: rng() < 0.3 ? "#0D2B1A" : "#1A4D2E",
-      });
+    if (type === "shoot") {
+      osc.type = "sawtooth";
+      osc.frequency.setValueAtTime(300, now);
+      osc.frequency.exponentialRampToValueAtTime(80, now + 0.08);
+      gain.gain.setValueAtTime(0.15, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+      osc.start(now);
+      osc.stop(now + 0.1);
+    } else if (type === "hit") {
+      osc.type = "square";
+      osc.frequency.setValueAtTime(200, now);
+      osc.frequency.exponentialRampToValueAtTime(50, now + 0.1);
+      gain.gain.setValueAtTime(0.2, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+      osc.start(now);
+      osc.stop(now + 0.12);
+    } else if (type === "death") {
+      osc.type = "sawtooth";
+      osc.frequency.setValueAtTime(400, now);
+      osc.frequency.exponentialRampToValueAtTime(30, now + 0.4);
+      gain.gain.setValueAtTime(0.3, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+      osc.start(now);
+      osc.stop(now + 0.4);
+    } else if (type === "boss") {
+      osc.type = "sawtooth";
+      osc.frequency.setValueAtTime(110, now);
+      osc.frequency.setValueAtTime(220, now + 0.1);
+      osc.frequency.setValueAtTime(110, now + 0.2);
+      gain.gain.setValueAtTime(0.25, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+      osc.start(now);
+      osc.stop(now + 0.5);
+    } else if (type === "playerhit") {
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(600, now);
+      osc.frequency.exponentialRampToValueAtTime(100, now + 0.2);
+      gain.gain.setValueAtTime(0.2, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+      osc.start(now);
+      osc.stop(now + 0.2);
+    } else if (type === "bombthrow") {
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(900, now);
+      osc.frequency.exponentialRampToValueAtTime(200, now + 0.3);
+      gain.gain.setValueAtTime(0.12, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+      osc.start(now);
+      osc.stop(now + 0.35);
+    } else if (type === "explosion") {
+      // White noise burst via buffer
+      try {
+        const bufLen = ctx.sampleRate * 0.5;
+        const buf = ctx.createBuffer(1, bufLen, ctx.sampleRate);
+        const data = buf.getChannelData(0);
+        for (let i = 0; i < bufLen; i++)
+          data[i] = (Math.random() * 2 - 1) * (1 - i / bufLen);
+        const src = ctx.createBufferSource();
+        src.buffer = buf;
+        const g2 = ctx.createGain();
+        g2.gain.setValueAtTime(0.6, now);
+        g2.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+        src.connect(g2);
+        g2.connect(ctx.destination);
+        src.start(now);
+      } catch (_) {}
+      return;
+    } else if (type === "beep") {
+      osc.type = "square";
+      osc.frequency.value = 880;
+      gain.gain.setValueAtTime(0.1, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.06);
+      osc.start(now);
+      osc.stop(now + 0.06);
+    }
+  } catch (_) {
+    /* ignore audio errors */
+  }
+}
+
+function startBgMusic(
+  ctx: AudioContext | null,
+  muted: boolean,
+): (() => void) | null {
+  if (!ctx || muted) return null;
+  try {
+    const osc1 = ctx.createOscillator();
+    const osc2 = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc1.connect(gain);
+    osc2.connect(gain);
+    gain.connect(ctx.destination);
+    osc1.type = "sine";
+    osc1.frequency.value = 80;
+    osc2.type = "sine";
+    osc2.frequency.value = 160.5;
+    gain.gain.value = 0.04;
+    osc1.start();
+    osc2.start();
+    return () => {
+      try {
+        osc1.stop();
+        osc2.stop();
+      } catch (_) {}
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
+// ── Detailed character drawing helpers ────────────────────────────────────────
+
+function drawCharacter(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  _bodyColor: string,
+  _legColor: string,
+  _accentColor: string,
+  facing: number,
+  isMoving: boolean,
+  animFrame: number,
+  scale = 1,
+  heroIdx = 0,
+) {
+  ctx.save();
+  ctx.translate(x, y);
+  if (facing < 0) ctx.scale(-1, 1);
+
+  const s = scale;
+  const legSwing = isMoving ? Math.sin(animFrame * 0.3) * 8 * s : 0;
+
+  // Ground shadow
+  ctx.save();
+  ctx.globalAlpha = 0.3;
+  ctx.fillStyle = "#000";
+  ctx.beginPath();
+  ctx.ellipse(0, 34 * s, 14 * s, 4 * s, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  if (heroIdx === 0) {
+    // ═══════════════════════════════════════
+    // HUMZA ALI MAZARI — Indian Agent
+    // Dark blue tactical jacket + plate carrier
+    // ═══════════════════════════════════════
+
+    // Boots
+    ctx.fillStyle = "#111";
+    ctx.beginPath();
+    ctx.roundRect(-10 * s, 28 * s + legSwing, 11 * s, 6 * s, 2 * s);
+    ctx.fill();
+    ctx.fillStyle = "#2a2a2a";
+    ctx.fillRect(-9 * s, 28 * s + legSwing, 5 * s, 2 * s);
+    ctx.fillStyle = "#111";
+    ctx.beginPath();
+    ctx.roundRect(1 * s, 28 * s - legSwing, 11 * s, 6 * s, 2 * s);
+    ctx.fill();
+    ctx.fillStyle = "#2a2a2a";
+    ctx.fillRect(2 * s, 28 * s - legSwing, 5 * s, 2 * s);
+    // Boot ankle lace detail
+    ctx.strokeStyle = "#444";
+    ctx.lineWidth = 0.8 * s;
+    ctx.beginPath();
+    ctx.moveTo(-9 * s, 30 * s + legSwing);
+    ctx.lineTo(0, 30 * s + legSwing);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(2 * s, 30 * s - legSwing);
+    ctx.lineTo(11 * s, 30 * s - legSwing);
+    ctx.stroke();
+
+    // Legs — black tactical pants with gradient
+    let lg = ctx.createLinearGradient(-10 * s, 14 * s, 0, 14 * s);
+    lg.addColorStop(0, "#2e2e50");
+    lg.addColorStop(0.6, "#1a1a2e");
+    lg.addColorStop(1, "#0d0d1a");
+    ctx.fillStyle = lg;
+    ctx.beginPath();
+    ctx.roundRect(-9 * s, 14 * s, 9 * s, 15 * s + legSwing, 2 * s);
+    ctx.fill();
+    let rg = ctx.createLinearGradient(2 * s, 14 * s, 11 * s, 14 * s);
+    rg.addColorStop(0, "#2e2e50");
+    rg.addColorStop(0.6, "#1a1a2e");
+    rg.addColorStop(1, "#0d0d1a");
+    ctx.fillStyle = rg;
+    ctx.beginPath();
+    ctx.roundRect(2 * s, 14 * s, 9 * s, 15 * s - legSwing, 2 * s);
+    ctx.fill();
+    // Knee pads
+    ctx.fillStyle = "#2a2a2a";
+    ctx.beginPath();
+    ctx.roundRect(-8 * s, 20 * s + legSwing * 0.6, 7 * s, 5 * s, 1.5 * s);
+    ctx.fill();
+    ctx.fillStyle = "#3a3a3a";
+    ctx.fillRect(-7 * s, 21 * s + legSwing * 0.6, 5 * s, 1 * s);
+    ctx.fillRect(-7 * s, 23 * s + legSwing * 0.6, 5 * s, 1 * s);
+    ctx.fillStyle = "#2a2a2a";
+    ctx.beginPath();
+    ctx.roundRect(3 * s, 20 * s - legSwing * 0.6, 7 * s, 5 * s, 1.5 * s);
+    ctx.fill();
+    ctx.fillStyle = "#3a3a3a";
+    ctx.fillRect(4 * s, 21 * s - legSwing * 0.6, 5 * s, 1 * s);
+    ctx.fillRect(4 * s, 23 * s - legSwing * 0.6, 5 * s, 1 * s);
+
+    // Jacket/Torso with gradient shading
+    let tg = ctx.createLinearGradient(-12 * s, 0, 12 * s, 0);
+    tg.addColorStop(0, "#2a5aae");
+    tg.addColorStop(0.45, "#1a3a6e");
+    tg.addColorStop(1, "#0d1f3a");
+    ctx.fillStyle = tg;
+    ctx.beginPath();
+    ctx.roundRect(-12 * s, -2 * s, 24 * s, 18 * s, 3 * s);
+    ctx.fill();
+    // V-collar
+    ctx.fillStyle = "rgba(0,0,0,0.35)";
+    ctx.beginPath();
+    ctx.moveTo(-3 * s, -2 * s);
+    ctx.lineTo(0, 6 * s);
+    ctx.lineTo(3 * s, -2 * s);
+    ctx.closePath();
+    ctx.fill();
+    // Belt
+    ctx.fillStyle = "#111";
+    ctx.fillRect(-12 * s, 14 * s, 24 * s, 3 * s);
+    ctx.fillStyle = "#888";
+    ctx.fillRect(-3 * s, 14 * s, 6 * s, 3 * s);
+    ctx.fillStyle = "#aaa";
+    ctx.fillRect(-1.5 * s, 14.5 * s, 3 * s, 2 * s);
+
+    // Plate Carrier Vest
+    let vg = ctx.createLinearGradient(-10 * s, 0, 10 * s, 0);
+    vg.addColorStop(0, "#3e3e4e");
+    vg.addColorStop(0.5, "#2a2a3a");
+    vg.addColorStop(1, "#1a1a28");
+    ctx.fillStyle = vg;
+    ctx.beginPath();
+    ctx.roundRect(-10 * s, -1 * s, 20 * s, 16 * s, 2 * s);
+    ctx.fill();
+    // MOLLE pouches
+    ctx.fillStyle = "#1a1a28";
+    ctx.strokeStyle = "#333";
+    ctx.lineWidth = 0.5 * s;
+    for (const [px, py] of [
+      [-9, 2],
+      [5, 2],
+    ] as [number, number][]) {
+      ctx.beginPath();
+      ctx.roundRect(px * s, py * s, 5 * s, 6 * s, 1 * s);
+      ctx.fill();
+      ctx.stroke();
+    }
+    for (const [px, py] of [
+      [-9, 9],
+      [5, 9],
+    ] as [number, number][]) {
+      ctx.beginPath();
+      ctx.roundRect(px * s, py * s, 5 * s, 4 * s, 1 * s);
+      ctx.fill();
+      ctx.stroke();
+    }
+    // Center seam
+    ctx.strokeStyle = "#333";
+    ctx.lineWidth = 0.8 * s;
+    ctx.setLineDash([2 * s, 1.5 * s]);
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(0, 14 * s);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Shoulders
+    let sg = ctx.createLinearGradient(-15 * s, 0, -9 * s, 0);
+    sg.addColorStop(0, "#2a5aae");
+    sg.addColorStop(1, "#0d1f3a");
+    ctx.fillStyle = sg;
+    ctx.beginPath();
+    ctx.roundRect(-15 * s, -3 * s, 6 * s, 5 * s, 2 * s);
+    ctx.fill();
+    let sgr = ctx.createLinearGradient(9 * s, 0, 15 * s, 0);
+    sgr.addColorStop(0, "#2a5aae");
+    sgr.addColorStop(1, "#0d1f3a");
+    ctx.fillStyle = sgr;
+    ctx.beginPath();
+    ctx.roundRect(9 * s, -3 * s, 6 * s, 5 * s, 2 * s);
+    ctx.fill();
+
+    // Arms
+    let alg = ctx.createLinearGradient(-17 * s, 0, -10 * s, 0);
+    alg.addColorStop(0, "#2a5aae");
+    alg.addColorStop(1, "#0d1f3a");
+    ctx.fillStyle = alg;
+    ctx.beginPath();
+    ctx.roundRect(-17 * s, -1 * s, 7 * s, 17 * s, 3 * s);
+    ctx.fill();
+    let arg = ctx.createLinearGradient(10 * s, 0, 17 * s, 0);
+    arg.addColorStop(0, "#2a5aae");
+    arg.addColorStop(1, "#0d1f3a");
+    ctx.fillStyle = arg;
+    ctx.beginPath();
+    ctx.roundRect(10 * s, -1 * s, 7 * s, 13 * s, 3 * s);
+    ctx.fill();
+    // Elbow pads
+    ctx.fillStyle = "#1a1a2a";
+    ctx.beginPath();
+    ctx.roundRect(-16 * s, 8 * s, 5 * s, 4 * s, 1 * s);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.roundRect(11 * s, 5 * s, 5 * s, 4 * s, 1 * s);
+    ctx.fill();
+
+    // AK-47
+    ctx.fillStyle = "#1a1a1a"; // Receiver
+    ctx.beginPath();
+    ctx.roundRect(13 * s, 3 * s, 23 * s, 5 * s, 1 * s);
+    ctx.fill();
+    ctx.fillStyle = "#333";
+    ctx.fillRect(15 * s, 3 * s, 18 * s, 1.5 * s); // sheen
+    ctx.fillStyle = "#222";
+    ctx.fillRect(30 * s, 1.5 * s, 2 * s, 3 * s); // iron sight
+    ctx.fillStyle = "#111";
+    ctx.fillRect(34 * s, 4 * s, 9 * s, 2 * s); // barrel
+    ctx.fillStyle = "#333"; // flash hider
+    ctx.beginPath();
+    ctx.roundRect(41 * s, 3 * s, 3 * s, 5 * s, 1 * s);
+    ctx.fill();
+    ctx.fillStyle = "#6b3a1f"; // wooden stock
+    ctx.beginPath();
+    ctx.roundRect(11 * s, 4 * s, 5 * s, 9 * s, 2 * s);
+    ctx.fill();
+    ctx.fillStyle = "#8b5a3a";
+    ctx.fillRect(12 * s, 5 * s, 2 * s, 7 * s);
+    // Curved 30-round magazine
+    ctx.fillStyle = "#333";
+    ctx.beginPath();
+    ctx.moveTo(22 * s, 8 * s);
+    ctx.quadraticCurveTo(23 * s, 17 * s, 25 * s, 17 * s);
+    ctx.quadraticCurveTo(27 * s, 17 * s, 28 * s, 8 * s);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#444";
+    ctx.fillRect(23 * s, 9 * s, 1 * s, 6 * s);
+    // Handguard
+    ctx.fillStyle = "#252525";
+    ctx.beginPath();
+    ctx.roundRect(29 * s, 3 * s, 7 * s, 5 * s, 1 * s);
+    ctx.fill();
+
+    // HEAD — Humza Ali Mazari
+    // Neck
+    let nhg = ctx.createLinearGradient(-3 * s, 0, 3 * s, 0);
+    nhg.addColorStop(0, "#d49060");
+    nhg.addColorStop(1, "#a06040");
+    ctx.fillStyle = nhg;
+    ctx.fillRect(-3 * s, -3 * s, 6 * s, 5 * s);
+    // Head radial gradient
+    let hg = ctx.createRadialGradient(
+      -2 * s,
+      -15 * s,
+      2 * s,
+      0,
+      -13 * s,
+      11 * s,
+    );
+    hg.addColorStop(0, "#d4984e");
+    hg.addColorStop(0.65, "#C68642");
+    hg.addColorStop(1, "#a06535");
+    ctx.fillStyle = hg;
+    ctx.beginPath();
+    ctx.ellipse(0, -13 * s, 10 * s, 12 * s, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Black messy hair
+    ctx.fillStyle = "#111";
+    ctx.beginPath();
+    ctx.ellipse(0, -22 * s, 10 * s, 5 * s, 0, Math.PI, Math.PI * 2);
+    ctx.fill();
+    ctx.fillRect(-10 * s, -22 * s, 20 * s, 5 * s);
+    // Thick black beard (South Asian)
+    ctx.fillStyle = "#1a1a1a";
+    ctx.beginPath();
+    ctx.ellipse(0, -5 * s, 8 * s, 7 * s, 0, 0, Math.PI);
+    ctx.fill();
+    ctx.strokeStyle = "#333";
+    ctx.lineWidth = 0.8 * s;
+    for (let i = -3; i <= 3; i += 1.5) {
+      ctx.beginPath();
+      ctx.moveTo(i * s, -9 * s);
+      ctx.lineTo(i * 0.7 * s, -2 * s);
+      ctx.stroke();
+    }
+    // Eye shadow / brow ridge
+    ctx.fillStyle = "rgba(0,0,0,0.22)";
+    ctx.beginPath();
+    ctx.ellipse(-4 * s, -17 * s, 4 * s, 2 * s, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(4 * s, -17 * s, 4 * s, 2 * s, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Thick eyebrows
+    ctx.strokeStyle = "#111";
+    ctx.lineWidth = 2 * s;
+    ctx.beginPath();
+    ctx.moveTo(-7 * s, -18 * s);
+    ctx.quadraticCurveTo(-4 * s, -19.5 * s, -1 * s, -18 * s);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(1 * s, -18 * s);
+    ctx.quadraticCurveTo(4 * s, -19.5 * s, 7 * s, -18 * s);
+    ctx.stroke();
+    // Eyes with depth
+    ctx.shadowBlur = 3 * s;
+    ctx.shadowColor = "rgba(0,0,0,0.6)";
+    ctx.fillStyle = "#fff";
+    ctx.beginPath();
+    ctx.ellipse(-4 * s, -15 * s, 3 * s, 2.5 * s, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(4 * s, -15 * s, 3 * s, 2.5 * s, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.shadowColor = "transparent";
+    ctx.fillStyle = "#111";
+    ctx.beginPath();
+    ctx.arc(-4 * s, -15 * s, 1.5 * s, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(4 * s, -15 * s, 1.5 * s, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "rgba(255,255,255,0.9)";
+    ctx.beginPath();
+    ctx.arc(-3.4 * s, -15.6 * s, 0.6 * s, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(4.6 * s, -15.6 * s, 0.6 * s, 0, Math.PI * 2);
+    ctx.fill();
+    // Nose
+    ctx.fillStyle = "#a06535";
+    ctx.beginPath();
+    ctx.arc(0, -11 * s, 1.8 * s, 0, Math.PI * 2);
+    ctx.fill();
+  } else {
+    // ═══════════════════════════════════════
+    // AJAY SANYAL — Spy Agent
+    // Olive green army uniform + dark vest
+    // ═══════════════════════════════════════
+
+    const ajayUniform = "#3a5a2a";
+    const ajayKhaki = "#6b5a2a";
+
+    // Boots
+    ctx.fillStyle = "#111";
+    ctx.beginPath();
+    ctx.roundRect(-10 * s, 28 * s + legSwing, 11 * s, 6 * s, 2 * s);
+    ctx.fill();
+    ctx.fillStyle = "#2a2a2a";
+    ctx.fillRect(-9 * s, 28 * s + legSwing, 5 * s, 2 * s);
+    ctx.fillStyle = "#111";
+    ctx.beginPath();
+    ctx.roundRect(1 * s, 28 * s - legSwing, 11 * s, 6 * s, 2 * s);
+    ctx.fill();
+    ctx.fillStyle = "#2a2a2a";
+    ctx.fillRect(2 * s, 28 * s - legSwing, 5 * s, 2 * s);
+
+    // Legs — khaki pants
+    let klg = ctx.createLinearGradient(-10 * s, 0, 0, 0);
+    klg.addColorStop(0, "#8b7540");
+    klg.addColorStop(0.6, ajayKhaki);
+    klg.addColorStop(1, "#4a3d18");
+    ctx.fillStyle = klg;
+    ctx.beginPath();
+    ctx.roundRect(-9 * s, 14 * s, 9 * s, 15 * s + legSwing, 2 * s);
+    ctx.fill();
+    let krg = ctx.createLinearGradient(2 * s, 0, 11 * s, 0);
+    krg.addColorStop(0, "#8b7540");
+    krg.addColorStop(0.6, ajayKhaki);
+    krg.addColorStop(1, "#4a3d18");
+    ctx.fillStyle = krg;
+    ctx.beginPath();
+    ctx.roundRect(2 * s, 14 * s, 9 * s, 15 * s - legSwing, 2 * s);
+    ctx.fill();
+    // Leg pockets
+    ctx.fillStyle = "#4a3a18";
+    ctx.beginPath();
+    ctx.roundRect(-8 * s, 22 * s + legSwing * 0.5, 6 * s, 4 * s, 1 * s);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.roundRect(4 * s, 22 * s - legSwing * 0.5, 6 * s, 4 * s, 1 * s);
+    ctx.fill();
+
+    // Torso — army uniform
+    let ktg = ctx.createLinearGradient(-12 * s, 0, 12 * s, 0);
+    ktg.addColorStop(0, "#5a8a4a");
+    ktg.addColorStop(0.45, ajayUniform);
+    ktg.addColorStop(1, "#1f3a15");
+    ctx.fillStyle = ktg;
+    ctx.beginPath();
+    ctx.roundRect(-12 * s, -2 * s, 24 * s, 18 * s, 3 * s);
+    ctx.fill();
+    // Button line
+    ctx.strokeStyle = "rgba(0,0,0,0.3)";
+    ctx.lineWidth = 0.8 * s;
+    ctx.beginPath();
+    ctx.moveTo(0, -2 * s);
+    ctx.lineTo(0, 14 * s);
+    ctx.stroke();
+    ctx.fillStyle = "#2a2a1a";
+    for (let i = 0; i < 3; i++) {
+      ctx.beginPath();
+      ctx.arc(0, (1 + i * 5) * s, 1 * s, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // Belt
+    ctx.fillStyle = "#2a1a0a";
+    ctx.fillRect(-12 * s, 14 * s, 24 * s, 3 * s);
+    ctx.fillStyle = "#888";
+    ctx.fillRect(-3 * s, 14 * s, 6 * s, 3 * s);
+    ctx.fillStyle = "#aaa";
+    ctx.fillRect(-1.5 * s, 14.5 * s, 3 * s, 2 * s);
+
+    // Dark tactical vest
+    let kvg = ctx.createLinearGradient(-9 * s, 0, 9 * s, 0);
+    kvg.addColorStop(0, "#3a3a4a");
+    kvg.addColorStop(0.5, "#252530");
+    kvg.addColorStop(1, "#151520");
+    ctx.fillStyle = kvg;
+    ctx.beginPath();
+    ctx.roundRect(-9 * s, 0, 18 * s, 14 * s, 2 * s);
+    ctx.fill();
+    ctx.fillStyle = "#151520";
+    ctx.strokeStyle = "#333";
+    ctx.lineWidth = 0.5 * s;
+    for (const [px, py] of [
+      [-8, 2],
+      [5, 2],
+      [-8, 8],
+      [5, 8],
+    ] as [number, number][]) {
+      ctx.beginPath();
+      ctx.roundRect(px * s, py * s, 4 * s, 5 * s, 1 * s);
+      ctx.fill();
+      ctx.stroke();
+    }
+
+    // Shoulders (epaulettes with gold stripe)
+    let ksg = ctx.createLinearGradient(-15 * s, 0, -9 * s, 0);
+    ksg.addColorStop(0, "#5a8a4a");
+    ksg.addColorStop(1, "#1f3a15");
+    ctx.fillStyle = ksg;
+    ctx.beginPath();
+    ctx.roundRect(-15 * s, -3 * s, 6 * s, 5 * s, 2 * s);
+    ctx.fill();
+    ctx.fillStyle = "#FFD700";
+    ctx.fillRect(-14 * s, -1 * s, 4 * s, 1 * s);
+    let ksgr = ctx.createLinearGradient(9 * s, 0, 15 * s, 0);
+    ksgr.addColorStop(0, "#5a8a4a");
+    ksgr.addColorStop(1, "#1f3a15");
+    ctx.fillStyle = ksgr;
+    ctx.beginPath();
+    ctx.roundRect(9 * s, -3 * s, 6 * s, 5 * s, 2 * s);
+    ctx.fill();
+    ctx.fillStyle = "#FFD700";
+    ctx.fillRect(11 * s, -1 * s, 4 * s, 1 * s);
+
+    // Arms
+    let kalg = ctx.createLinearGradient(-17 * s, 0, -10 * s, 0);
+    kalg.addColorStop(0, "#5a8a4a");
+    kalg.addColorStop(1, "#1f3a15");
+    ctx.fillStyle = kalg;
+    ctx.beginPath();
+    ctx.roundRect(-17 * s, -1 * s, 7 * s, 17 * s, 3 * s);
+    ctx.fill();
+    let karg = ctx.createLinearGradient(10 * s, 0, 17 * s, 0);
+    karg.addColorStop(0, "#5a8a4a");
+    karg.addColorStop(1, "#1f3a15");
+    ctx.fillStyle = karg;
+    ctx.beginPath();
+    ctx.roundRect(10 * s, -1 * s, 7 * s, 13 * s, 3 * s);
+    ctx.fill();
+
+    // M4A1 rifle
+    ctx.fillStyle = "#1a1a1a";
+    ctx.beginPath();
+    ctx.roundRect(13 * s, 3 * s, 27 * s, 5 * s, 1 * s);
+    ctx.fill();
+    ctx.fillStyle = "#252525";
+    ctx.fillRect(15 * s, 3 * s, 22 * s, 2 * s); // upper receiver
+    ctx.fillStyle = "#111"; // retractable stock
+    ctx.beginPath();
+    ctx.roundRect(11 * s, 4 * s, 5 * s, 8 * s, 1 * s);
+    ctx.fill();
+    ctx.fillStyle = "#333";
+    ctx.fillRect(12 * s, 5 * s, 2 * s, 5 * s);
+    ctx.fillStyle = "#2a2a2a"; // RIS quad handguard
+    ctx.beginPath();
+    ctx.roundRect(30 * s, 2 * s, 9 * s, 7 * s, 1 * s);
+    ctx.fill();
+    ctx.fillStyle = "#444";
+    ctx.fillRect(30 * s, 2 * s, 9 * s, 1.5 * s);
+    ctx.fillRect(30 * s, 7.5 * s, 9 * s, 1.5 * s);
+    ctx.fillStyle = "#111";
+    ctx.fillRect(37 * s, 4 * s, 7 * s, 2 * s); // barrel
+    ctx.fillStyle = "#333";
+    ctx.beginPath();
+    ctx.roundRect(42 * s, 3 * s, 3 * s, 4 * s, 1 * s);
+    ctx.fill(); // muzzle
+    ctx.fillStyle = "#222"; // straight 30-round mag
+    ctx.beginPath();
+    ctx.roundRect(21 * s, 8 * s, 6 * s, 9 * s, 1 * s);
+    ctx.fill();
+    ctx.fillStyle = "#333";
+    ctx.fillRect(21 * s, 9 * s, 6 * s, 1 * s);
+
+    // HEAD — Ajay Sanyal
+    let ang = ctx.createLinearGradient(-3 * s, 0, 3 * s, 0);
+    ang.addColorStop(0, "#e0a578");
+    ang.addColorStop(1, "#b07558");
+    ctx.fillStyle = ang;
+    ctx.fillRect(-3 * s, -3 * s, 6 * s, 5 * s);
+    let ahg = ctx.createRadialGradient(
+      -2 * s,
+      -15 * s,
+      2 * s,
+      0,
+      -13 * s,
+      11 * s,
+    );
+    ahg.addColorStop(0, "#e4aa80");
+    ahg.addColorStop(0.65, "#D4956A");
+    ahg.addColorStop(1, "#b07558");
+    ctx.fillStyle = ahg;
+    ctx.beginPath();
+    ctx.ellipse(0, -13 * s, 10 * s, 12 * s, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Military cap (dark green)
+    ctx.fillStyle = "#2a4a1e";
+    ctx.beginPath();
+    ctx.ellipse(0, -22 * s, 10 * s, 4.5 * s, 0, Math.PI, Math.PI * 2);
+    ctx.fill();
+    ctx.fillRect(-10 * s, -26 * s, 20 * s, 5 * s);
+    ctx.fillStyle = "#1a3a0e";
+    ctx.fillRect(-10 * s, -22 * s, 20 * s, 2 * s);
+    ctx.fillStyle = "#2a4a1e"; // visor brim
+    ctx.beginPath();
+    ctx.ellipse(3 * s, -22 * s, 13 * s, 3 * s, 0.12, 0, Math.PI);
+    ctx.fill();
+    // Gold cap badge
+    ctx.fillStyle = "#FFD700";
+    ctx.beginPath();
+    ctx.arc(0, -24 * s, 2.5 * s, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#B8860B";
+    ctx.beginPath();
+    ctx.arc(0, -24 * s, 1.5 * s, 0, Math.PI * 2);
+    ctx.fill();
+    // Gold aviator sunglasses (mirrored lenses)
+    const ll = ctx.createRadialGradient(
+      -4 * s,
+      -15 * s,
+      0,
+      -4 * s,
+      -15 * s,
+      4 * s,
+    );
+    ll.addColorStop(0, "#D4A017");
+    ll.addColorStop(1, "#8B6914");
+    ctx.fillStyle = ll;
+    ctx.beginPath();
+    ctx.ellipse(-4 * s, -15 * s, 4 * s, 3 * s, -0.15, 0, Math.PI * 2);
+    ctx.fill();
+    const lr = ctx.createRadialGradient(
+      4 * s,
+      -15 * s,
+      0,
+      4 * s,
+      -15 * s,
+      4 * s,
+    );
+    lr.addColorStop(0, "#D4A017");
+    lr.addColorStop(1, "#8B6914");
+    ctx.fillStyle = lr;
+    ctx.beginPath();
+    ctx.ellipse(4 * s, -15 * s, 4 * s, 3 * s, 0.15, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#8B6914";
+    ctx.lineWidth = 1 * s;
+    ctx.beginPath();
+    ctx.ellipse(-4 * s, -15 * s, 4 * s, 3 * s, -0.15, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.ellipse(4 * s, -15 * s, 4 * s, 3 * s, 0.15, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(-0.5 * s, -15 * s);
+    ctx.lineTo(0.5 * s, -15 * s);
+    ctx.stroke(); // bridge
+    ctx.fillStyle = "rgba(255,255,200,0.22)";
+    ctx.beginPath();
+    ctx.ellipse(-5 * s, -16 * s, 2 * s, 1.5 * s, -0.3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(3 * s, -16 * s, 2 * s, 1.5 * s, 0.3, 0, Math.PI * 2);
+    ctx.fill();
+    // Eyebrows (subtle under sunglasses)
+    ctx.strokeStyle = "#555";
+    ctx.lineWidth = 1.5 * s;
+    ctx.beginPath();
+    ctx.moveTo(-7 * s, -18 * s);
+    ctx.quadraticCurveTo(-4 * s, -19.5 * s, -1 * s, -18 * s);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(1 * s, -18 * s);
+    ctx.quadraticCurveTo(4 * s, -19.5 * s, 7 * s, -18 * s);
+    ctx.stroke();
+    // Nose
+    ctx.fillStyle = "#b07558";
+    ctx.beginPath();
+    ctx.arc(0, -11 * s, 1.8 * s, 0, Math.PI * 2);
+    ctx.fill();
+    // Jaw / mouth
+    ctx.strokeStyle = "#906050";
+    ctx.lineWidth = 1 * s;
+    ctx.beginPath();
+    ctx.moveTo(-3 * s, -8 * s);
+    ctx.quadraticCurveTo(0, -6.5 * s, 3 * s, -8 * s);
+    ctx.stroke();
+    // Light stubble
+    ctx.fillStyle = "rgba(0,0,0,0.08)";
+    ctx.beginPath();
+    ctx.ellipse(0, -9 * s, 7 * s, 3 * s, 0, 0, Math.PI);
+    ctx.fill();
+  }
+
+  ctx.restore();
+}
+
+function drawEnemy(
+  ctx: CanvasRenderingContext2D,
+  enemy: Enemy,
+  cx: number,
+  _cy: number,
+  screenX: number,
+  screenY: number,
+) {
+  const dx = cx - enemy.x;
+  const facingSign = dx > 0 ? 1 : -1;
+  const isMoving = Math.abs(enemy.vx) + Math.abs(enemy.vy) > 0.2;
+  const scale = enemy.isBoss ? 1.4 : 1;
+  const animFrame = Math.floor(Date.now() / 100) % 20;
+  const isBoss = enemy.isBoss;
+  const bossIdx = BOSS_DATA.findIndex((b) => b.name === enemy.name);
+
+  ctx.save();
+  ctx.translate(screenX, screenY);
+  if (enemy.flashTimer > 0) {
+    ctx.filter = "brightness(3) saturate(0.5)";
+  }
+  if (facingSign > 0) ctx.scale(-1, 1);
+
+  const s = scale;
+  const legSwing = isMoving ? Math.sin(animFrame * 0.3) * 7 * s : 0;
+
+  // Ground shadow
+  ctx.save();
+  ctx.globalAlpha = 0.35;
+  ctx.fillStyle = "#000";
+  ctx.beginPath();
+  ctx.ellipse(0, 34 * s, isBoss ? 18 * s : 14 * s, 4 * s, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  if (!isBoss) {
+    // ═══════════════════════════════════════
+    // GRUNT ENEMY — Pakistani Militant
+    // Dark shalwar kameez + tactical vest + keffiyeh face scarf
+    // ═══════════════════════════════════════
+
+    // Boots
+    ctx.fillStyle = "#1a1a1a";
+    ctx.beginPath();
+    ctx.roundRect(-10 * s, 28 * s + legSwing, 11 * s, 6 * s, 2 * s);
+    ctx.fill();
+    ctx.fillStyle = "#2a2a2a";
+    ctx.fillRect(-9 * s, 28 * s + legSwing, 5 * s, 2 * s);
+    ctx.fillStyle = "#1a1a1a";
+    ctx.beginPath();
+    ctx.roundRect(1 * s, 28 * s - legSwing, 11 * s, 6 * s, 2 * s);
+    ctx.fill();
+    ctx.fillStyle = "#2a2a2a";
+    ctx.fillRect(2 * s, 28 * s - legSwing, 5 * s, 2 * s);
+
+    // Legs — dark olive shalwar
+    let elg = ctx.createLinearGradient(-10 * s, 0, 0, 0);
+    elg.addColorStop(0, "#5c5c4a");
+    elg.addColorStop(0.5, "#4a4a3a");
+    elg.addColorStop(1, "#2a2a1e");
+    ctx.fillStyle = elg;
+    ctx.beginPath();
+    ctx.roundRect(-9 * s, 14 * s, 9 * s, 15 * s + legSwing, 2 * s);
+    ctx.fill();
+    let erg = ctx.createLinearGradient(2 * s, 0, 11 * s, 0);
+    erg.addColorStop(0, "#5c5c4a");
+    erg.addColorStop(0.5, "#4a4a3a");
+    erg.addColorStop(1, "#2a2a1e");
+    ctx.fillStyle = erg;
+    ctx.beginPath();
+    ctx.roundRect(2 * s, 14 * s, 9 * s, 15 * s - legSwing, 2 * s);
+    ctx.fill();
+
+    // Torso — shalwar kameez base
+    let etg = ctx.createLinearGradient(-12 * s, 0, 12 * s, 0);
+    etg.addColorStop(0, "#5c5c4a");
+    etg.addColorStop(0.5, "#4a4a3a");
+    etg.addColorStop(1, "#2a2a1e");
+    ctx.fillStyle = etg;
+    ctx.beginPath();
+    ctx.roundRect(-12 * s, -2 * s, 24 * s, 18 * s, 3 * s);
+    ctx.fill();
+    // Belt
+    ctx.fillStyle = "#2a1a0a";
+    ctx.fillRect(-12 * s, 14 * s, 24 * s, 2.5 * s);
+    ctx.fillStyle = "#555";
+    ctx.fillRect(-2.5 * s, 14 * s, 5 * s, 2.5 * s);
+
+    // Black tactical vest
+    let evg = ctx.createLinearGradient(-10 * s, 0, 10 * s, 0);
+    evg.addColorStop(0, "#2a2a2a");
+    evg.addColorStop(0.5, "#1a1a1a");
+    evg.addColorStop(1, "#0d0d0d");
+    ctx.fillStyle = evg;
+    ctx.beginPath();
+    ctx.roundRect(-10 * s, -1 * s, 20 * s, 16 * s, 2 * s);
+    ctx.fill();
+    // Vest pouches
+    ctx.fillStyle = "#111";
+    ctx.strokeStyle = "#2a2a2a";
+    ctx.lineWidth = 0.5 * s;
+    for (const [px, py] of [
+      [-9, 1],
+      [5, 1],
+    ] as [number, number][]) {
+      ctx.beginPath();
+      ctx.roundRect(px * s, py * s, 5 * s, 7 * s, 1 * s);
+      ctx.fill();
+      ctx.stroke();
+    }
+    for (const [px, py] of [
+      [-9, 9],
+      [5, 9],
+    ] as [number, number][]) {
+      ctx.beginPath();
+      ctx.roundRect(px * s, py * s, 5 * s, 4 * s, 1 * s);
+      ctx.fill();
+      ctx.stroke();
+    }
+    ctx.strokeStyle = "#2a2a2a";
+    ctx.lineWidth = 0.8 * s;
+    ctx.beginPath();
+    ctx.moveTo(0, -1 * s);
+    ctx.lineTo(0, 14 * s);
+    ctx.stroke();
+
+    // Arms — dark olive
+    let ealg = ctx.createLinearGradient(-17 * s, 0, -10 * s, 0);
+    ealg.addColorStop(0, "#5c5c4a");
+    ealg.addColorStop(1, "#2a2a1e");
+    ctx.fillStyle = ealg;
+    ctx.beginPath();
+    ctx.roundRect(-17 * s, -1 * s, 7 * s, 17 * s, 3 * s);
+    ctx.fill();
+    let earg = ctx.createLinearGradient(10 * s, 0, 17 * s, 0);
+    earg.addColorStop(0, "#5c5c4a");
+    earg.addColorStop(1, "#2a2a1e");
+    ctx.fillStyle = earg;
+    ctx.beginPath();
+    ctx.roundRect(10 * s, -1 * s, 7 * s, 13 * s, 3 * s);
+    ctx.fill();
+
+    // AK-47
+    ctx.fillStyle = "#1a1a1a";
+    ctx.beginPath();
+    ctx.roundRect(12 * s, 2 * s, 24 * s, 5 * s, 1 * s);
+    ctx.fill();
+    ctx.fillStyle = "#333";
+    ctx.fillRect(14 * s, 2 * s, 18 * s, 1.5 * s);
+    ctx.fillStyle = "#111";
+    ctx.fillRect(34 * s, 3 * s, 9 * s, 2.5 * s); // barrel
+    ctx.fillStyle = "#333";
+    ctx.beginPath();
+    ctx.roundRect(42 * s, 2 * s, 3 * s, 5 * s, 1 * s);
+    ctx.fill(); // flash hider
+    ctx.fillStyle = "#6b3a1f"; // wooden stock
+    ctx.beginPath();
+    ctx.roundRect(10 * s, 4 * s, 5 * s, 8 * s, 2 * s);
+    ctx.fill();
+    // Curved mag
+    ctx.fillStyle = "#333";
+    ctx.beginPath();
+    ctx.moveTo(22 * s, 7 * s);
+    ctx.quadraticCurveTo(23 * s, 16 * s, 25 * s, 16 * s);
+    ctx.quadraticCurveTo(27 * s, 16 * s, 28 * s, 7 * s);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#222";
+    ctx.fillRect(23 * s, 8 * s, 1 * s, 6 * s);
+    // Muzzle flash
+    if (enemy.flashTimer > 200) {
+      ctx.fillStyle = "#FFD700";
+      ctx.globalAlpha = 0.9;
+      ctx.beginPath();
+      ctx.arc(46 * s, 4 * s, 5 * s, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 0.5;
+      ctx.fillStyle = "#FFA500";
+      ctx.beginPath();
+      ctx.arc(46 * s, 4 * s, 8 * s, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+
+    // HEAD — keffiyeh face scarf (only eyes visible)
+    // Neck
+    ctx.fillStyle = "#8B6020";
+    ctx.fillRect(-3 * s, -2 * s, 6 * s, 4 * s);
+    // Head base
+    let ehg = ctx.createRadialGradient(
+      -2 * s,
+      -15 * s,
+      2 * s,
+      0,
+      -13 * s,
+      10 * s,
+    );
+    ehg.addColorStop(0, "#a07030");
+    ehg.addColorStop(0.7, "#8B6020");
+    ehg.addColorStop(1, "#5a3a10");
+    ctx.fillStyle = ehg;
+    ctx.beginPath();
+    ctx.ellipse(0, -13 * s, 9 * s, 11 * s, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Dark keffiyeh wrap on top of head
+    ctx.fillStyle = "#111";
+    ctx.beginPath();
+    ctx.ellipse(0, -21 * s, 10 * s, 6 * s, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillRect(-10 * s, -25 * s, 20 * s, 5 * s);
+    // Face scarf covering lower face
+    ctx.fillStyle = "#111";
+    ctx.beginPath();
+    ctx.roundRect(-8 * s, -10 * s, 16 * s, 12 * s, [0, 0, 3 * s, 3 * s]);
+    ctx.fill();
+    // Scarf texture folds
+    ctx.strokeStyle = "#2a2a2a";
+    ctx.lineWidth = 0.8 * s;
+    ctx.beginPath();
+    ctx.moveTo(-7 * s, -8 * s);
+    ctx.quadraticCurveTo(0, -9 * s, 7 * s, -8 * s);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(-7 * s, -5 * s);
+    ctx.quadraticCurveTo(0, -6 * s, 7 * s, -5 * s);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(-7 * s, -2 * s);
+    ctx.quadraticCurveTo(0, -3 * s, 7 * s, -2 * s);
+    ctx.stroke();
+    // Eyes visible above scarf
+    ctx.fillStyle = "#fff";
+    ctx.beginPath();
+    ctx.ellipse(-3.5 * s, -13 * s, 2.5 * s, 2 * s, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(3.5 * s, -13 * s, 2.5 * s, 2 * s, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#1a1a1a";
+    ctx.beginPath();
+    ctx.arc(-3.5 * s, -13 * s, 1.3 * s, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(3.5 * s, -13 * s, 1.3 * s, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "rgba(255,255,255,0.85)";
+    ctx.beginPath();
+    ctx.arc(-3 * s, -13.5 * s, 0.5 * s, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(4 * s, -13.5 * s, 0.5 * s, 0, Math.PI * 2);
+    ctx.fill();
+    // Intense brow shadow
+    ctx.fillStyle = "rgba(0,0,0,0.4)";
+    ctx.beginPath();
+    ctx.ellipse(-3.5 * s, -15.5 * s, 3.5 * s, 2 * s, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(3.5 * s, -15.5 * s, 3.5 * s, 2 * s, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Thick eyebrows
+    ctx.strokeStyle = "#111";
+    ctx.lineWidth = 2 * s;
+    ctx.beginPath();
+    ctx.moveTo(-6 * s, -16.5 * s);
+    ctx.quadraticCurveTo(-3.5 * s, -18 * s, -1 * s, -16.5 * s);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(1 * s, -16.5 * s);
+    ctx.quadraticCurveTo(3.5 * s, -18 * s, 6 * s, -16.5 * s);
+    ctx.stroke();
+  } else {
+    // ═══════════════════════════════════════
+    // BOSS CHARACTERS — unique detailed looks
+    // ═══════════════════════════════════════
+
+    const baseColor = enemy.uniform;
+    const accentClr = enemy.colorAccent;
+
+    // Boots (larger for bosses)
+    ctx.fillStyle = "#1a1a1a";
+    ctx.beginPath();
+    ctx.roundRect(-10 * s, 28 * s + legSwing, 12 * s, 7 * s, 2 * s);
+    ctx.fill();
+    ctx.fillStyle = "#333";
+    ctx.fillRect(-9 * s, 28 * s + legSwing, 5 * s, 2 * s);
+    ctx.fillStyle = "#1a1a1a";
+    ctx.beginPath();
+    ctx.roundRect(1 * s, 28 * s - legSwing, 12 * s, 7 * s, 2 * s);
+    ctx.fill();
+    ctx.fillStyle = "#333";
+    ctx.fillRect(2 * s, 28 * s - legSwing, 5 * s, 2 * s);
+
+    // Legs
+    let blg = ctx.createLinearGradient(-10 * s, 0, 0, 0);
+    blg.addColorStop(0, "#555");
+    blg.addColorStop(0.5, baseColor);
+    blg.addColorStop(1, "#0d0d0d");
+    ctx.fillStyle = blg;
+    ctx.beginPath();
+    ctx.roundRect(-9 * s, 14 * s, 9 * s, 15 * s + legSwing, 2 * s);
+    ctx.fill();
+    let brg = ctx.createLinearGradient(2 * s, 0, 11 * s, 0);
+    brg.addColorStop(0, "#555");
+    brg.addColorStop(0.5, baseColor);
+    brg.addColorStop(1, "#0d0d0d");
+    ctx.fillStyle = brg;
+    ctx.beginPath();
+    ctx.roundRect(2 * s, 14 * s, 9 * s, 15 * s - legSwing, 2 * s);
+    ctx.fill();
+
+    // Torso
+    let btg = ctx.createLinearGradient(-13 * s, 0, 13 * s, 0);
+    btg.addColorStop(0, "#777");
+    btg.addColorStop(0.45, baseColor);
+    btg.addColorStop(1, "#111");
+    ctx.fillStyle = btg;
+    ctx.beginPath();
+    ctx.roundRect(-13 * s, -2 * s, 26 * s, 20 * s, 3 * s);
+    ctx.fill();
+    // Rank stripes
+    ctx.fillStyle = accentClr;
+    ctx.fillRect(-13 * s, -2 * s, 26 * s, 3.5 * s);
+    ctx.fillRect(-13 * s, 14 * s, 26 * s, 3 * s);
+    // Medals
+    ctx.fillStyle = "#FFD700";
+    for (const mx of [-6, 0, 6] as number[]) {
+      ctx.beginPath();
+      ctx.arc(mx * s, 6 * s, 2.5 * s, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#FF6B00";
+      ctx.beginPath();
+      ctx.arc(mx * s, 6 * s, 1.2 * s, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#FFD700";
+    }
+
+    // Arms
+    let balg = ctx.createLinearGradient(-18 * s, 0, -10 * s, 0);
+    balg.addColorStop(0, "#777");
+    balg.addColorStop(1, "#111");
+    ctx.fillStyle = balg;
+    ctx.beginPath();
+    ctx.roundRect(-18 * s, -1 * s, 8 * s, 18 * s, 3 * s);
+    ctx.fill();
+    let barg = ctx.createLinearGradient(10 * s, 0, 18 * s, 0);
+    barg.addColorStop(0, "#777");
+    barg.addColorStop(1, "#111");
+    ctx.fillStyle = barg;
+    ctx.beginPath();
+    ctx.roundRect(10 * s, -1 * s, 8 * s, 14 * s, 3 * s);
+    ctx.fill();
+
+    // Weapons per boss
+    if (bossIdx === 0) {
+      // Rehman Dakait — double barrel shotgun
+      ctx.fillStyle = "#4a3010";
+      ctx.beginPath();
+      ctx.roundRect(11 * s, 3 * s, 28 * s, 6 * s, 2 * s);
+      ctx.fill();
+      ctx.fillStyle = "#1a1a1a";
+      ctx.fillRect(36 * s, 3 * s, 9 * s, 2.5 * s);
+      ctx.fillRect(36 * s, 6 * s, 9 * s, 2.5 * s);
+      ctx.fillStyle = "#333";
+      ctx.fillRect(37 * s, 3.5 * s, 7 * s, 1 * s);
+      ctx.fillRect(37 * s, 6.5 * s, 7 * s, 1 * s);
+      ctx.strokeStyle = "#555";
+      ctx.lineWidth = 1.2 * s;
+      ctx.beginPath();
+      ctx.arc(22 * s, 10 * s, 4 * s, 0, Math.PI);
+      ctx.stroke();
+    } else if (bossIdx === 1) {
+      // SP Aslam Choudhury — police pistol
+      ctx.fillStyle = "#1a1a1a";
+      ctx.beginPath();
+      ctx.roundRect(12 * s, 3 * s, 14 * s, 6 * s, 1 * s);
+      ctx.fill();
+      ctx.fillStyle = "#333";
+      ctx.fillRect(14 * s, 3 * s, 10 * s, 2 * s);
+      ctx.fillStyle = "#111";
+      ctx.fillRect(24 * s, 4 * s, 5 * s, 2 * s);
+      ctx.fillStyle = "#2a1a0a";
+      ctx.beginPath();
+      ctx.roundRect(12 * s, 6 * s, 4 * s, 7 * s, 1 * s);
+      ctx.fill();
+    } else if (bossIdx === 2) {
+      // Major Iqbal — AK-47 with scope
+      ctx.fillStyle = "#1a1a1a";
+      ctx.beginPath();
+      ctx.roundRect(12 * s, 3 * s, 26 * s, 5 * s, 1 * s);
+      ctx.fill();
+      ctx.fillStyle = "#333";
+      ctx.fillRect(14 * s, 3 * s, 20 * s, 1.5 * s);
+      ctx.fillStyle = "#222"; // scope body
+      ctx.beginPath();
+      ctx.roundRect(20 * s, -1 * s, 10 * s, 4 * s, 1 * s);
+      ctx.fill();
+      ctx.fillStyle = "#4a9aaa"; // scope lenses
+      ctx.beginPath();
+      ctx.arc(21 * s, 1 * s, 1.8 * s, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(29 * s, 1 * s, 1.8 * s, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#111";
+      ctx.fillRect(36 * s, 4 * s, 7 * s, 2 * s);
+      ctx.fillStyle = "#333";
+      ctx.beginPath(); // curved mag
+      ctx.moveTo(20 * s, 8 * s);
+      ctx.quadraticCurveTo(21 * s, 16 * s, 23 * s, 16 * s);
+      ctx.quadraticCurveTo(25 * s, 16 * s, 26 * s, 8 * s);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "#6b3a1f";
+      ctx.beginPath();
+      ctx.roundRect(10 * s, 4 * s, 5 * s, 8 * s, 2 * s);
+      ctx.fill();
+    } else {
+      // Jameel Jamali — pistol + knife at belt
+      ctx.fillStyle = "#2a1a0a";
+      ctx.beginPath();
+      ctx.roundRect(12 * s, 3 * s, 14 * s, 6 * s, 1 * s);
+      ctx.fill();
+      ctx.fillStyle = "#1a1a1a";
+      ctx.fillRect(14 * s, 3 * s, 10 * s, 2 * s);
+      ctx.fillStyle = "#111";
+      ctx.fillRect(24 * s, 4 * s, 5 * s, 2 * s);
+      // Knife
+      ctx.fillStyle = "#888";
+      ctx.beginPath();
+      ctx.moveTo(-12 * s, 11 * s);
+      ctx.lineTo(-7 * s, 11 * s);
+      ctx.lineTo(-6 * s, 18 * s);
+      ctx.lineTo(-13 * s, 18 * s);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "#4a2a0a";
+      ctx.fillRect(-12 * s, 10 * s, 5 * s, 2.5 * s);
+    }
+
+    // Boss heads
+    // Neck
+    ctx.fillStyle = "#9a7048";
+    ctx.fillRect(-3 * s, -2 * s, 6 * s, 5 * s);
+
+    if (bossIdx === 0) {
+      // REHMAN DAKAIT — black kameez, red dupatta, scar, bandolier
+      let rhg = ctx.createRadialGradient(
+        -2 * s,
+        -15 * s,
+        2 * s,
+        0,
+        -13 * s,
+        11 * s,
+      );
+      rhg.addColorStop(0, "#a07030");
+      rhg.addColorStop(0.7, "#8B6020");
+      rhg.addColorStop(1, "#5a3a10");
+      ctx.fillStyle = rhg;
+      ctx.beginPath();
+      ctx.ellipse(0, -13 * s, 10 * s, 12 * s, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // Thick beard
+      ctx.fillStyle = "#111";
+      ctx.beginPath();
+      ctx.ellipse(0, -5 * s, 9 * s, 8 * s, 0, 0, Math.PI);
+      ctx.fill();
+      ctx.strokeStyle = "#2a2a2a";
+      ctx.lineWidth = 0.8 * s;
+      for (let i = -4; i <= 4; i += 2) {
+        ctx.beginPath();
+        ctx.moveTo(i * s, -9 * s);
+        ctx.lineTo(i * 0.8 * s, -1 * s);
+        ctx.stroke();
+      }
+      // Red dupatta (scarf wrap)
+      ctx.fillStyle = "#CC0000";
+      ctx.beginPath();
+      ctx.ellipse(0, -21 * s, 11 * s, 6 * s, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#AA0000";
+      ctx.beginPath();
+      ctx.moveTo(-11 * s, -21 * s);
+      ctx.lineTo(-14 * s, -5 * s);
+      ctx.lineTo(-9 * s, -5 * s);
+      ctx.lineTo(-9 * s, -21 * s);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = "#880000";
+      ctx.lineWidth = 0.8 * s;
+      ctx.beginPath();
+      ctx.moveTo(-11 * s, -18 * s);
+      ctx.lineTo(-12 * s, -10 * s);
+      ctx.stroke();
+      // Eyes
+      ctx.fillStyle = "#fff";
+      ctx.beginPath();
+      ctx.ellipse(-4 * s, -14 * s, 3 * s, 2.5 * s, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(4 * s, -14 * s, 3 * s, 2.5 * s, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#111";
+      ctx.beginPath();
+      ctx.arc(-4 * s, -14 * s, 1.5 * s, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(4 * s, -14 * s, 1.5 * s, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,0.9)";
+      ctx.beginPath();
+      ctx.arc(-3.5 * s, -14.5 * s, 0.6 * s, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(4.5 * s, -14.5 * s, 0.6 * s, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "#111";
+      ctx.lineWidth = 2 * s;
+      ctx.beginPath();
+      ctx.moveTo(-7 * s, -17 * s);
+      ctx.quadraticCurveTo(-4 * s, -18.5 * s, -1 * s, -17 * s);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(1 * s, -17 * s);
+      ctx.quadraticCurveTo(4 * s, -18.5 * s, 7 * s, -17 * s);
+      ctx.stroke();
+      ctx.fillStyle = "#6a4010";
+      ctx.beginPath();
+      ctx.arc(0, -10 * s, 2 * s, 0, Math.PI * 2);
+      ctx.fill();
+      // SCAR — diagonal red scar on cheek
+      ctx.strokeStyle = "rgba(200,30,30,0.95)";
+      ctx.lineWidth = 2 * s;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(3 * s, -18 * s);
+      ctx.lineTo(6 * s, -10 * s);
+      ctx.stroke();
+      ctx.lineCap = "butt";
+      // Bandolier of bullets
+      ctx.strokeStyle = "#8B4513";
+      ctx.lineWidth = 3 * s;
+      ctx.beginPath();
+      ctx.moveTo(-13 * s, -2 * s);
+      ctx.lineTo(11 * s, 14 * s);
+      ctx.stroke();
+      ctx.strokeStyle = "#D4A017";
+      ctx.lineWidth = 1.5 * s;
+      for (let i = 0; i < 4; i++) {
+        const bpx = (-10 + i * 6) * s;
+        const bpy = (-1 + i * 4) * s;
+        ctx.beginPath();
+        ctx.moveTo(bpx, bpy);
+        ctx.lineTo(bpx + 2 * s, bpy + 3 * s);
+        ctx.stroke();
+      }
+    } else if (bossIdx === 1) {
+      // SP ASLAM CHOUDHURY — police cap, mustache, rank badges
+      let sphg = ctx.createRadialGradient(
+        -2 * s,
+        -15 * s,
+        2 * s,
+        0,
+        -13 * s,
+        11 * s,
+      );
+      sphg.addColorStop(0, "#d4b090");
+      sphg.addColorStop(0.65, "#C4A070");
+      sphg.addColorStop(1, "#9a7850");
+      ctx.fillStyle = sphg;
+      ctx.beginPath();
+      ctx.ellipse(0, -13 * s, 10 * s, 12 * s, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // Flat-top police peaked cap
+      ctx.fillStyle = "#6a5530";
+      ctx.beginPath();
+      ctx.ellipse(0, -22 * s, 10 * s, 4.5 * s, 0, Math.PI, Math.PI * 2);
+      ctx.fill();
+      ctx.fillRect(-10 * s, -26 * s, 20 * s, 5 * s);
+      ctx.fillStyle = "#4a3a20";
+      ctx.fillRect(-10 * s, -22 * s, 20 * s, 2 * s);
+      ctx.fillStyle = "#6a5530";
+      ctx.beginPath();
+      ctx.ellipse(3 * s, -22 * s, 13 * s, 3 * s, 0.12, 0, Math.PI);
+      ctx.fill();
+      ctx.fillStyle = "#FFD700";
+      ctx.beginPath();
+      ctx.arc(0, -24 * s, 3 * s, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#B8860B";
+      ctx.beginPath();
+      ctx.arc(0, -24 * s, 2 * s, 0, Math.PI * 2);
+      ctx.fill();
+      // Thick mustache
+      ctx.fillStyle = "#2a1a0a";
+      ctx.beginPath();
+      ctx.ellipse(0, -8.5 * s, 6 * s, 3 * s, 0, 0, Math.PI);
+      ctx.fill();
+      ctx.strokeStyle = "#111";
+      ctx.lineWidth = 1.5 * s;
+      ctx.beginPath();
+      ctx.moveTo(-6 * s, -9 * s);
+      ctx.quadraticCurveTo(0, -6 * s, 6 * s, -9 * s);
+      ctx.stroke();
+      // Eyes
+      ctx.fillStyle = "#fff";
+      ctx.beginPath();
+      ctx.ellipse(-4 * s, -14 * s, 3 * s, 2.5 * s, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(4 * s, -14 * s, 3 * s, 2.5 * s, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#333";
+      ctx.beginPath();
+      ctx.arc(-4 * s, -14 * s, 1.5 * s, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(4 * s, -14 * s, 1.5 * s, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,0.9)";
+      ctx.beginPath();
+      ctx.arc(-3.5 * s, -14.5 * s, 0.6 * s, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(4.5 * s, -14.5 * s, 0.6 * s, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "#333";
+      ctx.lineWidth = 1.8 * s;
+      ctx.beginPath();
+      ctx.moveTo(-7 * s, -17 * s);
+      ctx.quadraticCurveTo(-4 * s, -18.5 * s, -1 * s, -17 * s);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(1 * s, -17 * s);
+      ctx.quadraticCurveTo(4 * s, -18.5 * s, 7 * s, -17 * s);
+      ctx.stroke();
+      ctx.fillStyle = "#9a7050";
+      ctx.beginPath();
+      ctx.arc(0, -11 * s, 1.8 * s, 0, Math.PI * 2);
+      ctx.fill();
+      // Rank badge on shoulders
+      ctx.fillStyle = "#FFD700";
+      ctx.beginPath();
+      ctx.arc(-8 * s, 2 * s, 3.5 * s, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(8 * s, 2 * s, 3.5 * s, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#B8860B";
+      ctx.beginPath();
+      ctx.arc(-8 * s, 2 * s, 2 * s, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(8 * s, 2 * s, 2 * s, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (bossIdx === 2) {
+      // MAJOR IQBAL — olive army officer, beret, full beard
+      let mihg = ctx.createRadialGradient(
+        -2 * s,
+        -15 * s,
+        2 * s,
+        0,
+        -13 * s,
+        11 * s,
+      );
+      mihg.addColorStop(0, "#b09060");
+      mihg.addColorStop(0.65, "#9A7840");
+      mihg.addColorStop(1, "#6a4820");
+      ctx.fillStyle = mihg;
+      ctx.beginPath();
+      ctx.ellipse(0, -13 * s, 10 * s, 12 * s, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // Full beard
+      ctx.fillStyle = "#1a1a1a";
+      ctx.beginPath();
+      ctx.ellipse(0, -5 * s, 9 * s, 8 * s, 0, 0, Math.PI);
+      ctx.fill();
+      ctx.strokeStyle = "#2a2a2a";
+      ctx.lineWidth = 0.8 * s;
+      for (let i = -4; i <= 4; i += 2) {
+        ctx.beginPath();
+        ctx.moveTo(i * s, -9 * s);
+        ctx.lineTo(i * 0.8 * s, -1 * s);
+        ctx.stroke();
+      }
+      // Olive beret (tilted)
+      ctx.fillStyle = accentClr;
+      ctx.beginPath();
+      ctx.ellipse(-1 * s, -22 * s, 11 * s, 5 * s, -0.18, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#C0C0C0"; // silver star
+      ctx.beginPath();
+      ctx.arc(5 * s, -22 * s, 3.5 * s, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#888";
+      ctx.beginPath();
+      ctx.arc(5 * s, -22 * s, 2 * s, 0, Math.PI * 2);
+      ctx.fill();
+      // Eyes
+      ctx.fillStyle = "#fff";
+      ctx.beginPath();
+      ctx.ellipse(-4 * s, -14 * s, 3 * s, 2.5 * s, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(4 * s, -14 * s, 3 * s, 2.5 * s, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#111";
+      ctx.beginPath();
+      ctx.arc(-4 * s, -14 * s, 1.5 * s, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(4 * s, -14 * s, 1.5 * s, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,0.9)";
+      ctx.beginPath();
+      ctx.arc(-3.5 * s, -14.5 * s, 0.6 * s, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(4.5 * s, -14.5 * s, 0.6 * s, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "#111";
+      ctx.lineWidth = 2 * s;
+      ctx.beginPath();
+      ctx.moveTo(-7 * s, -17 * s);
+      ctx.quadraticCurveTo(-4 * s, -18.5 * s, -1 * s, -17 * s);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(1 * s, -17 * s);
+      ctx.quadraticCurveTo(4 * s, -18.5 * s, 7 * s, -17 * s);
+      ctx.stroke();
+      ctx.fillStyle = "#6a4820";
+      ctx.beginPath();
+      ctx.arc(0, -10 * s, 2 * s, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      // JAMEEL JAMALI — large black/white turban, long beard, gaunt face
+      let jjhg = ctx.createRadialGradient(
+        -2 * s,
+        -15 * s,
+        2 * s,
+        0,
+        -13 * s,
+        11 * s,
+      );
+      jjhg.addColorStop(0, "#c09060");
+      jjhg.addColorStop(0.65, "#a07840");
+      jjhg.addColorStop(1, "#6a4820");
+      ctx.fillStyle = jjhg;
+      ctx.beginPath();
+      ctx.ellipse(0, -13 * s, 9 * s, 12 * s, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // Very long beard
+      ctx.fillStyle = "#d0c8a8";
+      ctx.beginPath();
+      ctx.ellipse(0, -3 * s, 9 * s, 10 * s, 0, 0, Math.PI);
+      ctx.fill();
+      ctx.strokeStyle = "#aaa";
+      ctx.lineWidth = 0.8 * s;
+      for (let i = -4; i <= 4; i += 2) {
+        ctx.beginPath();
+        ctx.moveTo(i * s, -7 * s);
+        ctx.lineTo(i * 0.9 * s, 6 * s);
+        ctx.stroke();
+      }
+      // Large black/white turban
+      ctx.fillStyle = accentClr || "#111";
+      ctx.beginPath();
+      ctx.ellipse(0, -23 * s, 12 * s, 9 * s, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "#fff";
+      ctx.lineWidth = 1 * s;
+      for (let i = 0; i < 5; i++) {
+        ctx.beginPath();
+        ctx.ellipse(0, (-19 - i * 2) * s, 11.5 * s, 2.5 * s, 0, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      // Eyes (sunken, gaunt)
+      ctx.fillStyle = "#fff";
+      ctx.beginPath();
+      ctx.ellipse(-3.5 * s, -14 * s, 2.5 * s, 2 * s, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(3.5 * s, -14 * s, 2.5 * s, 2 * s, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#4a2010";
+      ctx.beginPath();
+      ctx.arc(-3.5 * s, -14 * s, 1.3 * s, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(3.5 * s, -14 * s, 1.3 * s, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,0.85)";
+      ctx.beginPath();
+      ctx.arc(-3 * s, -14.5 * s, 0.5 * s, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(4 * s, -14.5 * s, 0.5 * s, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "rgba(0,0,0,0.4)";
+      ctx.beginPath();
+      ctx.ellipse(-3.5 * s, -16 * s, 3 * s, 2 * s, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(3.5 * s, -16 * s, 3 * s, 2 * s, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "#555";
+      ctx.lineWidth = 1.8 * s;
+      ctx.beginPath();
+      ctx.moveTo(-6 * s, -17 * s);
+      ctx.quadraticCurveTo(-3.5 * s, -18.5 * s, -1 * s, -17 * s);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(1 * s, -17 * s);
+      ctx.quadraticCurveTo(3.5 * s, -18.5 * s, 6 * s, -17 * s);
+      ctx.stroke();
+      ctx.fillStyle = "#8a6030";
+      ctx.beginPath();
+      ctx.arc(0, -11 * s, 1.8 * s, 0, Math.PI * 2);
+      ctx.fill();
     }
   }
-  for (let i = 0; i < 40; i++) {
-    const angle = rng() * Math.PI * 2;
-    const radius = 800 + rng() * 400;
-    const x = WCX + Math.cos(angle) * radius;
-    const y = WCY + Math.sin(angle) * radius;
-    if (x > 100 && x < WW - 100 && y > 100 && y < WH - 100)
-      trees.push({ x, y, r: 10 + rng() * 6, color: "#2E7D32" });
-  }
-  for (let i = 0; i < 40; i++) {
-    const angle = rng() * Math.PI * 2;
-    const radius = 900 + rng() * 400;
-    const x = WCX + Math.cos(angle) * radius;
-    const y = WCY + Math.sin(angle) * radius;
-    const w = 40 + rng() * 30;
-    const h = 30 + rng() * 25;
-    buildings.push({ x: x - w / 2, y: y - h / 2, w, h, type: "hut" });
-  }
-  for (let i = 0; i < 20; i++) {
-    const angle = (i / 20) * Math.PI * 2;
-    const radius = 400 + rng() * 300;
-    const x = WCX + Math.cos(angle) * radius;
-    const y = WCY + Math.sin(angle) * radius;
-    const isVert = rng() < 0.5;
-    const w = isVert ? 12 : 60 + rng() * 40;
-    const h = isVert ? 60 + rng() * 40 : 12;
-    buildings.push({ x: x - w / 2, y: y - h / 2, w, h, type: "wall" });
-  }
 
-  let lootId = 0;
-  for (let i = 0; i < 6; i++) {
-    const angle = rng() * Math.PI * 2;
-    const r = 500 + rng() * 800;
-    loot.push({
-      id: lootId++,
-      x: WCX + Math.cos(angle) * r,
-      y: WCY + Math.sin(angle) * r,
-      type: "sword",
-      alive: true,
-    });
-  }
-  for (let i = 0; i < 6; i++) {
-    const angle = rng() * Math.PI * 2;
-    const r = 500 + rng() * 800;
-    loot.push({
-      id: lootId++,
-      x: WCX + Math.cos(angle) * r,
-      y: WCY + Math.sin(angle) * r,
-      type: "bow",
-      alive: true,
-    });
-  }
-  for (let i = 0; i < 4; i++) {
-    const angle = rng() * Math.PI * 2;
-    const r = 300 + rng() * 600;
-    loot.push({
-      id: lootId++,
-      x: WCX + Math.cos(angle) * r,
-      y: WCY + Math.sin(angle) * r,
-      type: "spear",
-      alive: true,
-    });
-  }
-  for (let i = 0; i < 18; i++) {
-    const angle = rng() * Math.PI * 2;
-    const r = 200 + rng() * 1200;
-    loot.push({
-      id: lootId++,
-      x: WCX + Math.cos(angle) * r,
-      y: WCY + Math.sin(angle) * r,
-      type: "health",
-      alive: true,
-    });
-  }
+  ctx.restore();
+  ctx.filter = "none";
 
-  return { trees, buildings, loot };
+  // HP bar above enemy
+  const barW = enemy.isBoss ? 80 : 50;
+  const barH = 6;
+  const bx = screenX - barW / 2;
+  const by = screenY - (enemy.isBoss ? 52 : 38);
+  ctx.fillStyle = "rgba(0,0,0,0.65)";
+  ctx.fillRect(bx - 1, by - 1, barW + 2, barH + 2);
+  ctx.fillStyle = enemy.hp > enemy.maxHp * 0.5 ? "#4CAF50" : "#F44336";
+  ctx.fillRect(bx, by, barW * (enemy.hp / enemy.maxHp), barH);
+
+  // Boss name label
+  if (enemy.isBoss) {
+    ctx.save();
+    ctx.font = "bold 11px sans-serif";
+    ctx.textAlign = "center";
+    const tw = ctx.measureText(enemy.name).width;
+    ctx.fillStyle = "rgba(0,0,0,0.75)";
+    ctx.fillRect(screenX - tw / 2 - 5, by - 20, tw + 10, 16);
+    ctx.fillStyle = enemy.colorAccent;
+    ctx.fillText(enemy.name, screenX, by - 7);
+    ctx.restore();
+  }
 }
 
-function genEnemies(rng: () => number): Enemy[] {
-  const enemies: Enemy[] = [];
-  let id = 0;
+function drawMap(
+  ctx: CanvasRenderingContext2D,
+  state: GameState,
+  camX: number,
+  camY: number,
+  vw: number,
+  vh: number,
+) {
+  const now = Date.now();
+  const warLevel = state.currentLevel;
+  const VPX = vw / 2;
+  const VPY = vh * 0.33;
 
-  // 14 Dakait Goon soldiers scattered around center
-  for (let i = 0; i < 14; i++) {
-    const angle = rng() * Math.PI * 2;
-    const radius = 500 + rng() * 700;
-    const wx = Math.max(
-      100,
-      Math.min(WW - 100, WCX + Math.cos(angle) * radius),
-    );
-    const wy = Math.max(
-      100,
-      Math.min(WH - 100, WCY + Math.sin(angle) * radius),
-    );
-    enemies.push({
-      id: id++,
-      type: "soldier",
-      name: "Dakait Goon",
-      x: wx,
-      y: wy,
-      hp: 50,
-      maxHp: 50,
-      damage: 8,
-      speed: 1.8,
-      lastAttack: 0,
-      waypointX: Math.max(100, Math.min(WW - 100, wx + (rng() - 0.5) * 300)),
-      waypointY: Math.max(100, Math.min(WH - 100, wy + (rng() - 0.5) * 300)),
-      alive: true,
-      flashTimer: 0,
-      deathAlpha: 1,
-      lastProjectile: 0,
-      radius: 14,
-    });
+  // === SKY ===
+  const skyGrad = ctx.createLinearGradient(0, 0, 0, VPY * 1.6);
+  if (warLevel <= 2) {
+    skyGrad.addColorStop(0, "#1A6ED8");
+    skyGrad.addColorStop(0.7, "#7EC8F0");
+    skyGrad.addColorStop(1, "#B8DFF5");
+  } else if (warLevel <= 4) {
+    skyGrad.addColorStop(0, "#7B2500");
+    skyGrad.addColorStop(0.6, "#E05A00");
+    skyGrad.addColorStop(1, "#F0A030");
+  } else if (warLevel <= 6) {
+    skyGrad.addColorStop(0, "#5A0000");
+    skyGrad.addColorStop(0.5, "#B81500");
+    skyGrad.addColorStop(1, "#E03000");
+  } else {
+    skyGrad.addColorStop(0, "#3A0000");
+    skyGrad.addColorStop(0.4, "#AA0A00");
+    skyGrad.addColorStop(1, "#FF2000");
+  }
+  ctx.fillStyle = skyGrad;
+  ctx.fillRect(0, 0, vw, VPY * 1.6);
+
+  // Clouds (early levels only)
+  if (warLevel <= 3) {
+    const cloudDefs = [
+      { x: vw * 0.1, y: VPY * 0.28, r: 26, t: 0 },
+      { x: vw * 0.3, y: VPY * 0.18, r: 18, t: 1.5 },
+      { x: vw * 0.68, y: VPY * 0.32, r: 30, t: 3 },
+      { x: vw * 0.87, y: VPY * 0.14, r: 16, t: 5 },
+    ];
+    for (const cl of cloudDefs) {
+      ctx.save();
+      ctx.globalAlpha = 0.88;
+      ctx.fillStyle = "#EEF8FF";
+      for (let ci = -1; ci <= 1; ci++) {
+        ctx.beginPath();
+        ctx.arc(
+          cl.x + ci * cl.r * 0.65 + Math.sin(now * 0.0002 + cl.t) * 3,
+          cl.y + Math.abs(ci) * cl.r * 0.25,
+          cl.r * (1 - Math.abs(ci) * 0.22),
+          0,
+          Math.PI * 2,
+        );
+        ctx.fill();
+      }
+      ctx.restore();
+    }
   }
 
-  // boss1 — Rehman Dakait: hides in SOUTH zone
-  enemies.push({
-    id: id++,
-    type: "boss1",
-    name: "Rehman Dakait",
-    x: WCX + 100,
-    y: WCY + 800,
-    hp: 300,
-    maxHp: 300,
-    damage: 18,
-    speed: 1.8,
-    lastAttack: 0,
-    waypointX: WCX,
-    waypointY: WCY + 750,
-    alive: true,
-    flashTimer: 0,
-    deathAlpha: 1,
-    lastProjectile: 0,
-    radius: 22,
-  });
+  // === LEFT BUILDING WALL (trapezoid) ===
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(0, -5);
+  ctx.lineTo(0, vh * 0.84);
+  ctx.lineTo(VPX - 20, VPY + 20);
+  ctx.lineTo(VPX - 20, -5);
+  ctx.closePath();
+  const leftGrad = ctx.createLinearGradient(0, 0, VPX * 0.8, 0);
+  leftGrad.addColorStop(0, "#C8A87A");
+  leftGrad.addColorStop(1, "#9A7848");
+  ctx.fillStyle = leftGrad;
+  ctx.fill();
 
-  // boss2 — SP Aslam Choudhury: hides in WEST zone
-  enemies.push({
-    id: id++,
-    type: "boss2",
-    name: "SP Aslam Choudhury",
-    x: WCX - 800,
-    y: WCY - 50,
-    hp: 250,
-    maxHp: 250,
-    damage: 16,
-    speed: 2.0,
-    lastAttack: 0,
-    waypointX: WCX - 750,
-    waypointY: WCY,
-    alive: true,
-    flashTimer: 0,
-    deathAlpha: 1,
-    lastProjectile: 0,
-    radius: 20,
-  });
+  // Brick lines on left
+  ctx.strokeStyle = "rgba(90, 60, 25, 0.2)";
+  ctx.lineWidth = 1;
+  for (let row = 0; row < 30; row++) {
+    const rowY = row * 22;
+    const perspF = Math.max(0.05, 1 - rowY / vh);
+    const bw = 55 * perspF;
+    const offset = (row % 2) * bw * 0.5;
+    let bx = -offset;
+    while (bx < VPX - 15) {
+      ctx.strokeRect(bx, rowY, bw, 18 * perspF);
+      bx += bw + 2;
+    }
+  }
 
-  // boss3 — Major Iqbal: hides in NORTH zone
-  enemies.push({
-    id: id++,
-    type: "boss3",
-    name: "Major Iqbal",
-    x: WCX - 100,
-    y: WCY - 800,
-    hp: 350,
-    maxHp: 350,
-    damage: 22,
-    speed: 1.5,
-    lastAttack: 0,
-    waypointX: WCX,
-    waypointY: WCY - 750,
-    alive: true,
-    flashTimer: 0,
-    deathAlpha: 1,
-    lastProjectile: 0,
-    radius: 24,
-  });
+  // Windows on left wall
+  const leftWins = [
+    { x: vw * 0.06, y: vh * 0.04 },
+    { x: vw * 0.13, y: vh * 0.04 },
+    { x: vw * 0.06, y: vh * 0.17 },
+    { x: vw * 0.13, y: vh * 0.17 },
+    { x: vw * 0.19, y: vh * 0.11 },
+    { x: vw * 0.06, y: vh * 0.31 },
+    { x: vw * 0.14, y: vh * 0.31 },
+    { x: vw * 0.22, y: vh * 0.26 },
+    { x: vw * 0.08, y: vh * 0.45 },
+    { x: vw * 0.17, y: vh * 0.44 },
+    { x: vw * 0.26, y: vh * 0.4 },
+  ];
+  for (const w of leftWins) {
+    if (w.x >= VPX - 25) continue;
+    const wScale = Math.max(0.15, 1 - w.x / VPX);
+    const ww = 26 * wScale;
+    const wh = 32 * wScale;
+    const isLit = Math.floor(w.x * 13 + w.y * 7) % 3 !== 0;
+    ctx.fillStyle = isLit
+      ? warLevel > 4
+        ? "rgba(255,60,0,0.8)"
+        : "rgba(255,215,80,0.85)"
+      : "rgba(30,20,10,0.6)";
+    ctx.fillRect(w.x, w.y, ww, wh);
+    ctx.strokeStyle = "#6B4020";
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(w.x, w.y, ww, wh);
+    if (isLit && ww > 8) {
+      ctx.strokeStyle = "rgba(255,255,255,0.2)";
+      ctx.lineWidth = 0.5;
+      ctx.beginPath();
+      ctx.moveTo(w.x + ww / 2, w.y);
+      ctx.lineTo(w.x + ww / 2, w.y + wh);
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
 
-  // boss4 — Jameel Jamali: hides in EAST zone
-  enemies.push({
-    id: id++,
-    type: "boss4",
-    name: "Jameel Jamali",
-    x: WCX + 800,
-    y: WCY + 50,
-    hp: 200,
-    maxHp: 200,
-    damage: 14,
-    speed: 2.2,
-    lastAttack: 0,
-    waypointX: WCX + 750,
-    waypointY: WCY,
-    alive: true,
-    flashTimer: 0,
-    deathAlpha: 1,
-    lastProjectile: 0,
-    radius: 18,
-  });
+  // === RIGHT BUILDING WALL (trapezoid) ===
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(vw, -5);
+  ctx.lineTo(vw, vh * 0.84);
+  ctx.lineTo(VPX + 20, VPY + 20);
+  ctx.lineTo(VPX + 20, -5);
+  ctx.closePath();
+  const rightGrad = ctx.createLinearGradient(vw, 0, VPX * 1.2, 0);
+  rightGrad.addColorStop(0, "#B89464");
+  rightGrad.addColorStop(1, "#907045");
+  ctx.fillStyle = rightGrad;
+  ctx.fill();
 
-  return enemies;
-}
+  // Windows on right wall
+  const rightWins = [
+    { x: vw * 0.94, y: vh * 0.04 },
+    { x: vw * 0.87, y: vh * 0.04 },
+    { x: vw * 0.94, y: vh * 0.17 },
+    { x: vw * 0.87, y: vh * 0.17 },
+    { x: vw * 0.81, y: vh * 0.11 },
+    { x: vw * 0.94, y: vh * 0.31 },
+    { x: vw * 0.86, y: vh * 0.31 },
+    { x: vw * 0.78, y: vh * 0.26 },
+    { x: vw * 0.92, y: vh * 0.45 },
+    { x: vw * 0.83, y: vh * 0.44 },
+    { x: vw * 0.74, y: vh * 0.4 },
+  ];
+  for (const w of rightWins) {
+    if (w.x <= VPX + 25) continue;
+    const wScale = Math.max(0.15, (w.x - VPX) / (vw - VPX));
+    const ww = 26 * wScale;
+    const wh = 32 * wScale;
+    const isLit = Math.floor(w.x * 9 + w.y * 11) % 3 !== 0;
+    ctx.fillStyle = isLit
+      ? warLevel > 4
+        ? "rgba(255,60,0,0.8)"
+        : "rgba(255,215,80,0.85)"
+      : "rgba(30,20,10,0.6)";
+    ctx.fillRect(w.x - ww, w.y, ww, wh);
+    ctx.strokeStyle = "#6B4020";
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(w.x - ww, w.y, ww, wh);
+  }
+  ctx.restore();
 
-function genNPCs(): NPC[] {
-  return [
+  // === SHOP SIGNS (Urdu/Hindi on buildings) ===
+  const leftSigns = [
     {
-      id: 0,
-      name: "INTEL OFFICER",
-      x: WCX + 180,
-      y: WCY - 120,
-      color: "#00BCD4",
-      crownColor: "",
-      hasCrown: false,
-      dialogue:
-        "Rehman Dakait was spotted to the SOUTH! Head south past the river!",
+      x: vw * 0.07,
+      y: vh * 0.54,
+      text: "\u0641\u0631\u06cc\u062f\u06cc",
+      bg: "#8B0000",
+      fg: "#FFD700",
     },
     {
-      id: 1,
-      name: "FIELD AGENT",
-      x: WCX - 220,
-      y: WCY + 140,
-      color: "#E91E63",
-      crownColor: "",
-      hasCrown: false,
-      dialogue:
-        "SP Aslam Choudhury is hiding in the WEST. Be careful — he has a unit with him!",
+      x: vw * 0.16,
+      y: vh * 0.47,
+      text: "MOBILE",
+      bg: "#003080",
+      fg: "#FFFFFF",
     },
     {
-      id: 2,
-      name: "RESISTANCE FIGHTER",
-      x: WCX + 300,
-      y: WCY + 250,
-      color: "#FFD600",
-      crownColor: "",
-      hasCrown: false,
-      dialogue:
-        "Major Iqbal is commanding from the NORTH. Take out his soldiers first!",
-    },
-    {
-      id: 3,
-      name: "INFORMANT",
-      x: WCX - 180,
-      y: WCY - 280,
-      color: "#FFFFFF",
-      crownColor: "#FFD700",
-      hasCrown: true,
-      dialogue:
-        'Jameel Jamali is in the EAST — says "baccha hai tu mera" but he\'s dangerous!',
+      x: vw * 0.06,
+      y: vh * 0.65,
+      text: "\u062f\u06cc\u067e\u0648",
+      bg: "#004020",
+      fg: "#80FF80",
     },
   ];
-}
-
-// ── Audio ─────────────────────────────────────────────────────────────
-function startBGM(ctx: AudioContext, masterGain: GainNode): () => void {
-  const bgmGain = ctx.createGain();
-  bgmGain.gain.setValueAtTime(0.06, ctx.currentTime);
-  bgmGain.connect(masterGain);
-
-  const notes = [147, 175, 196, 220, 175, 196, 147, 261, 220, 196];
-  let noteIdx = 0;
-  let running = true;
-
-  const playNext = () => {
-    if (!running || ctx.state === "closed") return;
-    const osc = ctx.createOscillator();
-    const env = ctx.createGain();
-    osc.type = "triangle";
-    osc.frequency.value = notes[noteIdx % notes.length];
-    env.gain.setValueAtTime(0.08, ctx.currentTime);
-    env.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.55);
-    osc.connect(env);
-    env.connect(bgmGain);
-    osc.start(ctx.currentTime);
-    osc.stop(ctx.currentTime + 0.6);
-    noteIdx++;
-    setTimeout(playNext, 580);
-  };
-
-  const playBeat = () => {
-    if (!running || ctx.state === "closed") return;
-    const buf = ctx.createBuffer(1, ctx.sampleRate * 0.08, ctx.sampleRate);
-    const data = buf.getChannelData(0);
-    for (let i = 0; i < data.length; i++)
-      data[i] = (Math.random() * 2 - 1) * (1 - i / data.length);
-    const src = ctx.createBufferSource();
-    src.buffer = buf;
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(0.15, ctx.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.08);
-    src.connect(g);
-    g.connect(bgmGain);
-    src.start();
-    setTimeout(playBeat, 600);
-  };
-
-  playNext();
-  playBeat();
-
-  return () => {
-    running = false;
-  };
-}
-
-// ── Sound effects ─────────────────────────────────────────────────────
-function playGunshot(ctx: AudioContext, masterGain: GainNode) {
-  const buf = ctx.createBuffer(1, ctx.sampleRate * 0.12, ctx.sampleRate);
-  const d = buf.getChannelData(0);
-  for (let i = 0; i < d.length; i++)
-    d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (d.length * 0.15));
-  const src = ctx.createBufferSource();
-  src.buffer = buf;
-  const g = ctx.createGain();
-  g.gain.setValueAtTime(0.7, ctx.currentTime);
-  g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.12);
-  src.connect(g);
-  g.connect(masterGain);
-  src.start();
-}
-
-function playHit(ctx: AudioContext, masterGain: GainNode) {
-  const osc = ctx.createOscillator();
-  const g = ctx.createGain();
-  osc.type = "sawtooth";
-  osc.frequency.setValueAtTime(180, ctx.currentTime);
-  osc.frequency.exponentialRampToValueAtTime(60, ctx.currentTime + 0.15);
-  g.gain.setValueAtTime(0.5, ctx.currentTime);
-  g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.2);
-  osc.connect(g);
-  g.connect(masterGain);
-  osc.start();
-  osc.stop(ctx.currentTime + 0.2);
-}
-
-function playBossAlert(ctx: AudioContext, masterGain: GainNode) {
-  const freqs = [220, 277, 330, 415];
-  freqs.forEach((f, i) => {
-    const osc = ctx.createOscillator();
-    const g = ctx.createGain();
-    osc.type = "square";
-    osc.frequency.value = f;
-    const t = ctx.currentTime + i * 0.12;
-    g.gain.setValueAtTime(0.0, t);
-    g.gain.linearRampToValueAtTime(0.25, t + 0.04);
-    g.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
-    osc.connect(g);
-    g.connect(masterGain);
-    osc.start(t);
-    osc.stop(t + 0.4);
-  });
-}
-
-function playVictory(ctx: AudioContext, masterGain: GainNode) {
-  const melody = [261, 329, 392, 523, 659, 784];
-  melody.forEach((f, i) => {
-    const osc = ctx.createOscillator();
-    const g = ctx.createGain();
-    osc.type = "triangle";
-    osc.frequency.value = f;
-    const t = ctx.currentTime + i * 0.2;
-    g.gain.setValueAtTime(0.4, t);
-    g.gain.exponentialRampToValueAtTime(0.001, t + 0.5);
-    osc.connect(g);
-    g.connect(masterGain);
-    osc.start(t);
-    osc.stop(t + 0.5);
-  });
-}
-
-function playDeath(ctx: AudioContext, masterGain: GainNode) {
-  const osc = ctx.createOscillator();
-  const g = ctx.createGain();
-  osc.type = "sine";
-  osc.frequency.setValueAtTime(220, ctx.currentTime);
-  osc.frequency.exponentialRampToValueAtTime(55, ctx.currentTime + 1.2);
-  g.gain.setValueAtTime(0.45, ctx.currentTime);
-  g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 1.2);
-  osc.connect(g);
-  g.connect(masterGain);
-  osc.start();
-  osc.stop(ctx.currentTime + 1.2);
-}
-
-function playNPCInteraction(ctx: AudioContext, masterGain: GainNode) {
-  [523, 659, 784].forEach((f, i) => {
-    const osc = ctx.createOscillator();
-    const g = ctx.createGain();
-    osc.type = "sine";
-    osc.frequency.value = f;
-    const t = ctx.currentTime + i * 0.1;
-    g.gain.setValueAtTime(0.25, t);
-    g.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
-    osc.connect(g);
-    g.connect(masterGain);
-    osc.start(t);
-    osc.stop(t + 0.2);
-  });
-}
-
-// ── Component ─────────────────────────────────────────────────────────
-export default function GameCanvas() {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const rafRef = useRef<number>(0);
-  const audioCtxRef = useRef<AudioContext | null>(null);
-  const stopMusicRef = useRef<(() => void) | null>(null);
-  const masterGainRef = useRef<GainNode | null>(null);
-  const [isMuted, setIsMuted] = useState(false);
-  const isMutedRef = useRef(false);
-
-  const playerRef = useRef<Player>({
-    x: WCX + 600,
-    y: WCY + 600,
-    hp: 100,
-    maxHp: 100,
-    weapon: 0,
-    lastAttack: 0,
-    angle: 0,
-    alive: true,
-  });
-  const enemiesRef = useRef<Enemy[]>([]);
-  const npcsRef = useRef<NPC[]>([]);
-  const projectilesRef = useRef<Projectile[]>([]);
-  const lootRef = useRef<Loot[]>([]);
-  const treesRef = useRef<Tree[]>([]);
-  const buildingsRef = useRef<Building[]>([]);
-
-  const gsRef = useRef<GameStateRef>({
-    camX: 0,
-    camY: 0,
-    mouseX: CW / 2,
-    mouseY: CH / 2,
-    keys: new Set<string>(),
-    kills: 0,
-    score: 0,
-    zoneRadius: INITIAL_ZONE_RADIUS,
-    zoneTargetRadius: INITIAL_ZONE_RADIUS,
-    zoneLastShrink: 0,
-    lastZoneDamage: 0,
-    startTime: 0,
-    lastFrame: 0,
-    lastSurviveCheck: 0,
-    dialogue: null,
-    projCounter: 0,
-    blinkTimer: 0,
-    bossElimMsg: null,
-  });
-
-  // Joystick refs (no re-renders)
-  const joystickActive = useRef(false);
-  const joystickDx = useRef(0);
-  const joystickDy = useRef(0);
-  const joystickKnobPos = useRef({ x: 0, y: 0 });
-  const joystickOrigin = useRef({ x: 0, y: 0 });
-  const [joystickKnob, setJoystickKnob] = useState({ x: 0, y: 0 });
-
-  const [phase, setPhase] = useState<GamePhase>("start");
-  const [_selectedCharIdx, setSelectedCharIdx] = useState(0);
-  const selectedCharIdxRef = useRef(0);
-  const [displayScore, setDisplayScore] = useState(0);
-  const [displayKills, setDisplayKills] = useState(0);
-  const [playerName, setPlayerName] = useState("");
-  const [submitted, setSubmitted] = useState(false);
-  const phaseRef = useRef<GamePhase>("start");
-  const charImagesRef = useRef<Record<string, HTMLImageElement>>({});
-  const terrainImgsRef = useRef<Record<string, HTMLImageElement>>({});
-
-  // Detect touch / mobile
-  const isMobile =
-    typeof window !== "undefined" &&
-    ("ontouchstart" in window || window.innerWidth < 768);
-
-  const submitScore = useSubmitScore();
-
-  // Preload character images
-  useEffect(() => {
-    const imgs: Record<string, HTMLImageElement> = {};
-    const charMap: Record<string, string> = {
-      humza: "/assets/generated/char-humza-transparent.dim_120x180.png",
-      ajay: "/assets/generated/char-ajay-transparent.dim_120x180.png",
-      rehman: "/assets/generated/char-rehman-transparent.dim_120x180.png",
-      sp: "/assets/generated/char-sp-transparent.dim_120x180.png",
-      major: "/assets/generated/char-major-transparent.dim_120x180.png",
-      jameel: "/assets/generated/char-jameel-transparent.dim_120x180.png",
-    };
-    for (const [key, src] of Object.entries(charMap)) {
-      const img = new Image();
-      img.src = src;
-      imgs[key] = img;
-    }
-    charImagesRef.current = imgs;
-    const terrainSrcs: Record<string, string> = {
-      ground: "/assets/generated/terrain-ground.dim_512x512.jpg",
-      mountain: "/assets/generated/terrain-mountain.dim_512x512.jpg",
-      village: "/assets/generated/terrain-village.dim_512x512.jpg",
-    };
-    const terrainImgs: Record<string, HTMLImageElement> = {};
-    for (const [key, src] of Object.entries(terrainSrcs)) {
-      const timg = new Image();
-      timg.src = src;
-      terrainImgs[key] = timg;
-    }
-    terrainImgsRef.current = terrainImgs;
-  }, []);
-
-  const wts = useCallback((wx: number, wy: number): Vec2 => {
-    const gs = gsRef.current;
-    return { x: wx - gs.camX, y: wy - gs.camY };
-  }, []);
-
-  const startAudio = useCallback(() => {
-    try {
-      const AudioCtx =
-        window.AudioContext ||
-        (window as unknown as { webkitAudioContext: typeof AudioContext })
-          .webkitAudioContext;
-      const ctx2 = new AudioCtx();
-      audioCtxRef.current = ctx2;
-      const mg = ctx2.createGain();
-      mg.gain.setValueAtTime(isMutedRef.current ? 0 : 1, ctx2.currentTime);
-      mg.connect(ctx2.destination);
-      masterGainRef.current = mg;
-      stopMusicRef.current = startBGM(ctx2, mg);
-    } catch {
-      /* audio not available */
-    }
-  }, []);
-
-  const initGame = useCallback(() => {
-    const rng = mkRng(42);
-    const { trees, buildings, loot } = genWorld(rng);
-    treesRef.current = trees;
-    buildingsRef.current = buildings;
-    lootRef.current = loot;
-    enemiesRef.current = genEnemies(mkRng(99));
-    npcsRef.current = genNPCs();
-    projectilesRef.current = [];
-
-    playerRef.current = {
-      x: WCX + 600,
-      y: WCY + 600,
-      hp: 100,
-      maxHp: 100,
-      weapon: 0,
-      lastAttack: 0,
-      angle: 0,
-      alive: true,
-    };
-
-    const gs = gsRef.current;
-    gs.kills = 0;
-    gs.score = 0;
-    gs.zoneRadius = INITIAL_ZONE_RADIUS;
-    gs.zoneTargetRadius = INITIAL_ZONE_RADIUS;
-    gs.zoneLastShrink = Date.now();
-    gs.lastZoneDamage = 0;
-    gs.startTime = Date.now();
-    gs.lastSurviveCheck = Date.now();
-    gs.dialogue = null;
-    gs.projCounter = 0;
-    gs.blinkTimer = 0;
-    gs.bossElimMsg = null;
-  }, []);
-
-  const resolveCollision = useCallback(
-    (nx: number, ny: number, radius: number): Vec2 => {
-      let rx = nx;
-      let ry = ny;
-      for (const b of buildingsRef.current) {
-        if (circleAABB(rx, ry, radius, b.x, b.y, b.w, b.h)) {
-          const bcx = b.x + b.w / 2;
-          const bcy = b.y + b.h / 2;
-          const dx = rx - bcx;
-          const dy = ry - bcy;
-          const overlapX = radius + b.w / 2 - Math.abs(dx);
-          const overlapY = radius + b.h / 2 - Math.abs(dy);
-          if (overlapX < overlapY) rx += Math.sign(dx) * overlapX;
-          else ry += Math.sign(dy) * overlapY;
-        }
-      }
-      for (const t of treesRef.current) {
-        const d = dist(rx, ry, t.x, t.y);
-        const minD = radius + t.r * 0.6;
-        if (d < minD) {
-          const ang = Math.atan2(ry - t.y, rx - t.x);
-          rx = t.x + Math.cos(ang) * minD;
-          ry = t.y + Math.sin(ang) * minD;
-        }
-      }
-      rx = Math.max(radius, Math.min(WW - radius, rx));
-      ry = Math.max(radius, Math.min(WH - radius, ry));
-      return { x: rx, y: ry };
+  const rightSigns = [
+    { x: vw * 0.82, y: vh * 0.52, text: "CHAI", bg: "#5D3B00", fg: "#FFD700" },
+    { x: vw * 0.74, y: vh * 0.46, text: "HOTEL", bg: "#2E0050", fg: "#FF88FF" },
+    {
+      x: vw * 0.88,
+      y: vh * 0.64,
+      text: "\u062e\u0627\u0646",
+      bg: "#003838",
+      fg: "#80FFFF",
     },
-    [],
-  );
+  ];
+  for (const sign of leftSigns) {
+    if (sign.x >= VPX - 20) continue;
+    const distF = sign.x / VPX;
+    const sw = 65 * distF + 15;
+    const sh = 20 * distF + 5;
+    const fs = Math.max(6, Math.round(14 * distF));
+    ctx.save();
+    ctx.fillStyle = sign.bg;
+    ctx.fillRect(sign.x, sign.y, sw, sh);
+    ctx.strokeStyle = "rgba(255,255,255,0.25)";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(sign.x, sign.y, sw, sh);
+    ctx.fillStyle = sign.fg;
+    ctx.font = `bold ${fs}px sans-serif`;
+    ctx.textAlign = "center";
+    ctx.fillText(sign.text, sign.x + sw / 2, sign.y + sh * 0.72);
+    ctx.restore();
+  }
+  for (const sign of rightSigns) {
+    if (sign.x <= VPX + 20) continue;
+    const distF = (vw - sign.x) / (vw - VPX);
+    const sw = 65 * distF + 15;
+    const sh = 20 * distF + 5;
+    const fs = Math.max(6, Math.round(14 * distF));
+    ctx.save();
+    ctx.fillStyle = sign.bg;
+    ctx.fillRect(sign.x - sw, sign.y, sw, sh);
+    ctx.strokeStyle = "rgba(255,255,255,0.25)";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(sign.x - sw, sign.y, sw, sh);
+    ctx.fillStyle = sign.fg;
+    ctx.font = `bold ${fs}px sans-serif`;
+    ctx.textAlign = "center";
+    ctx.fillText(sign.text, sign.x - sw / 2, sign.y + sh * 0.72);
+    ctx.restore();
+  }
 
-  const fireProjectile = useCallback(
-    (
-      fromPlayer: boolean,
-      x: number,
-      y: number,
-      angle: number,
-      type: Projectile["type"],
-      damage: number,
-      speed: number,
-    ) => {
-      const gs = gsRef.current;
-      projectilesRef.current.push({
-        id: gs.projCounter++,
-        x,
-        y,
-        vx: Math.cos(angle) * speed,
-        vy: Math.sin(angle) * speed,
-        type,
-        damage,
-        distTraveled: 0,
-        maxDist: fromPlayer ? 420 : 280,
-        alive: true,
-        fromPlayer,
-      });
-    },
-    [],
-  );
+  // === GROUND / ROAD ===
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(0, vh);
+  ctx.lineTo(vw, vh);
+  ctx.lineTo(VPX + 22, VPY + 22);
+  ctx.lineTo(VPX - 22, VPY + 22);
+  ctx.closePath();
+  const groundGrad = ctx.createLinearGradient(0, VPY + 22, 0, vh);
+  groundGrad.addColorStop(0, "#5A4028");
+  groundGrad.addColorStop(0.3, "#7A5A38");
+  groundGrad.addColorStop(1, "#A08060");
+  ctx.fillStyle = groundGrad;
+  ctx.fill();
 
-  const playerAttack = useCallback(() => {
-    const p = playerRef.current;
-    const gs = gsRef.current;
-    const now = Date.now();
-    const wep = WEAPONS[p.weapon];
-    if (now - p.lastAttack < wep.cooldown) return;
-    p.lastAttack = now;
+  // Road perspective depth lines
+  ctx.strokeStyle = "rgba(255,200,80,0.18)";
+  ctx.lineWidth = 1.5;
+  for (let li = 0; li <= 10; li++) {
+    const t = li / 10;
+    ctx.beginPath();
+    ctx.moveTo(t * vw, vh);
+    ctx.lineTo(VPX + (t * vw - VPX) * 0.04, VPY + 22);
+    ctx.stroke();
+  }
 
-    if (!wep.ranged) {
-      for (const e of enemiesRef.current) {
-        if (!e.alive) continue;
-        const d = dist(p.x, p.y, e.x, e.y);
-        if (d > 80) continue;
-        const ang = Math.atan2(e.y - p.y, e.x - p.x);
-        const diff = Math.abs(ang - p.angle);
-        const angleDiff = diff > Math.PI ? Math.PI * 2 - diff : diff;
-        if (angleDiff < Math.PI / 2.5) {
-          e.hp -= wep.damage;
-          e.flashTimer = 6;
-          if (e.hp <= 0) {
-            e.alive = false;
-            e.deathAlpha = 1;
-            gs.kills++;
-            const isBoss = e.type !== "soldier";
-            gs.score += isBoss ? 500 : 100;
-            if (isBoss) {
-              gs.bossElimMsg = {
-                text: `${e.name} ELIMINATED!`,
-                until: Date.now() + 2500,
-              };
-            }
-            lootRef.current.push({
-              id: gs.projCounter++,
-              x: e.x + (Math.random() - 0.5) * 30,
-              y: e.y + (Math.random() - 0.5) * 30,
-              type: isBoss
-                ? "health"
-                : (["health", "sword", "bow", "spear"][
-                    Math.floor(Math.random() * 4)
-                  ] as Loot["type"]),
-              alive: true,
-            });
-          }
-        }
+  // Center road dashes
+  ctx.strokeStyle = "rgba(240,220,100,0.45)";
+  ctx.lineWidth = 2.5;
+  ctx.setLineDash([22, 16]);
+  ctx.beginPath();
+  ctx.moveTo(vw / 2, vh);
+  ctx.lineTo(VPX, VPY + 28);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+
+  // === DEPTH BUILDINGS (at vanishing point) ===
+  const depthBldgs = [
+    { dx: -42, w: 30, h: 52, col: "#7A6040" },
+    { dx: 0, w: 20, h: 35, col: "#605040" },
+    { dx: 38, w: 25, h: 44, col: "#887050" },
+    { dx: -16, w: 15, h: 28, col: "#504030" },
+  ];
+  ctx.save();
+  ctx.globalAlpha = 0.75;
+  for (const db of depthBldgs) {
+    const bx = VPX + db.dx - db.w / 2;
+    const by = VPY - db.h + 20;
+    ctx.fillStyle = db.col;
+    ctx.fillRect(bx, by, db.w, db.h);
+    ctx.strokeStyle = "rgba(0,0,0,0.3)";
+    ctx.lineWidth = 0.5;
+    ctx.strokeRect(bx, by, db.w, db.h);
+    ctx.fillStyle =
+      warLevel > 4 ? "rgba(255,80,0,0.6)" : "rgba(255,220,80,0.6)";
+    for (let wi = 0; wi < 2; wi++) {
+      for (let wj = 0; wj < 3; wj++) {
+        ctx.fillRect(bx + 3 + wi * (db.w / 2 - 2), by + 4 + wj * 7, 4, 4);
       }
-    } else {
-      const pType: Projectile["type"] = p.weapon === 2 ? "spear" : "arrow";
-      fireProjectile(true, p.x, p.y, p.angle, pType, wep.damage, wep.projSpeed);
     }
-    if (audioCtxRef.current && masterGainRef.current && !isMutedRef.current) {
-      playGunshot(audioCtxRef.current, masterGainRef.current);
-    }
-  }, [fireProjectile]);
+  }
+  ctx.restore();
 
-  // ── Draw helpers ──────────────────────────────────────────────────────
-  const drawScene = useCallback(
-    (ctx: CanvasRenderingContext2D, now: number) => {
-      const gs = gsRef.current;
-      const p = playerRef.current;
+  // === POWER LINES ===
+  ctx.save();
+  // Utility poles left side
+  const poleXs = [vw * 0.04, vw * 0.19, vw * 0.36];
+  const poleYtops = [vh * 0.06, vh * 0.15, vh * 0.25];
+  for (let pi = 0; pi < poleXs.length; pi++) {
+    const px2 = poleXs[pi];
+    const pyTop = poleYtops[pi];
+    const poleH = (1 - pi * 0.2) * 55 + 20;
+    ctx.strokeStyle = "rgba(25, 15, 5, 0.8)";
+    ctx.lineWidth = 2.5 - pi * 0.5;
+    ctx.beginPath();
+    ctx.moveTo(px2, pyTop + poleH);
+    ctx.lineTo(px2, pyTop);
+    ctx.stroke();
+    ctx.lineWidth = 2 - pi * 0.3;
+    ctx.beginPath();
+    ctx.moveTo(px2 - poleH * 0.28, pyTop + poleH * 0.12);
+    ctx.lineTo(px2 + poleH * 0.28, pyTop + poleH * 0.12);
+    ctx.stroke();
+  }
+  // Wire lines sagging between buildings
+  for (let wi = 0; wi < 3; wi++) {
+    const wy = vh * 0.04 + wi * vh * 0.032;
+    const sag = 12 + wi * 7;
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = "rgba(20, 12, 4, 0.7)";
+    ctx.beginPath();
+    ctx.moveTo(0, wy);
+    ctx.quadraticCurveTo(vw * 0.5, wy + sag, vw, wy + 4 + wi * 2);
+    ctx.stroke();
+  }
+  ctx.restore();
 
-      gs.camX = Math.max(0, Math.min(WW - CW, p.x - CW / 2));
-      gs.camY = Math.max(0, Math.min(WH - CH, p.y - CH / 2));
+  // === ATMOSPHERE / HAZE near vanishing point ===
+  const hazeGrad = ctx.createRadialGradient(VPX, VPY, 8, VPX, VPY, vw * 0.38);
+  if (warLevel <= 3) {
+    hazeGrad.addColorStop(0, "rgba(200, 180, 140, 0.55)");
+    hazeGrad.addColorStop(0.5, "rgba(180, 155, 110, 0.2)");
+    hazeGrad.addColorStop(1, "rgba(160, 130, 80, 0)");
+  } else {
+    hazeGrad.addColorStop(0, "rgba(220, 80, 10, 0.55)");
+    hazeGrad.addColorStop(0.5, "rgba(200, 50, 5, 0.2)");
+    hazeGrad.addColorStop(1, "rgba(180, 20, 0, 0)");
+  }
+  ctx.fillStyle = hazeGrad;
+  ctx.fillRect(0, 0, vw, vh);
 
-      // Background terrain
-      const tileSize = 40;
-      const tx0 = Math.floor(gs.camX / tileSize);
-      const ty0 = Math.floor(gs.camY / tileSize);
-      const tx1 = tx0 + Math.ceil(CW / tileSize) + 2;
-      const ty1 = ty0 + Math.ceil(CH / tileSize) + 2;
-      for (let tx = tx0; tx < tx1; tx++) {
-        for (let ty = ty0; ty < ty1; ty++) {
-          const wx = tx * tileSize;
-          const wy = ty * tileSize;
-          const screenX = tx * tileSize - gs.camX;
-          const screenY = ty * tileSize - gs.camY;
-          const d = dist(wx + tileSize / 2, wy + tileSize / 2, WCX, WCY);
-          let terrainKey: string;
-          let fallbackCol: string;
-          if (d < 800) {
-            terrainKey = "village";
-            fallbackCol = tx % 4 === 0 || ty % 4 === 0 ? "#2E2E2E" : "#4A4A4A";
-          } else if (d < 1400) {
-            terrainKey = "ground";
-            fallbackCol = (tx + ty) % 7 < 2 ? "#6B4C1A" : "#8B6914";
-          } else {
-            terrainKey = "mountain";
-            fallbackCol = (tx * 3 + ty * 7) % 5 < 2 ? "#0A2214" : "#0D2B1A";
-          }
-          const terrainImg = terrainImgsRef.current[terrainKey];
-          if (terrainImg?.complete && terrainImg.naturalWidth > 0) {
-            const srcX = (tx * tileSize) % 512;
-            const srcY = (ty * tileSize) % 512;
-            if (srcX + tileSize <= 512 && srcY + tileSize <= 512) {
-              ctx.drawImage(
-                terrainImg,
-                srcX,
-                srcY,
-                tileSize,
-                tileSize,
-                screenX,
-                screenY,
-                tileSize + 1,
-                tileSize + 1,
-              );
-            } else {
-              ctx.drawImage(
-                terrainImg,
-                0,
-                0,
-                tileSize,
-                tileSize,
-                screenX,
-                screenY,
-                tileSize + 1,
-                tileSize + 1,
-              );
-            }
-          } else {
-            ctx.fillStyle = fallbackCol;
-            ctx.fillRect(screenX, screenY, tileSize + 1, tileSize + 1);
-          }
-        }
-      }
-
-      // Safe zone overlay
-      const zoneScreenX = WCX - gs.camX;
-      const zoneScreenY = WCY - gs.camY;
-      const zr = gs.zoneRadius;
-      ctx.save();
-      ctx.fillStyle = "rgba(0, 40, 180, 0.28)";
-      ctx.beginPath();
-      ctx.rect(0, 0, CW, CH);
-      ctx.arc(zoneScreenX, zoneScreenY, zr, 0, Math.PI * 2, true);
-      ctx.fill();
-      ctx.restore();
-
-      const pulse = 0.7 + 0.3 * Math.sin(now * 0.003);
-      ctx.strokeStyle = `rgba(80, 140, 255, ${pulse})`;
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.arc(zoneScreenX, zoneScreenY, zr, 0, Math.PI * 2);
-      ctx.stroke();
-
-      // Buildings
-      for (const b of buildingsRef.current) {
-        const sx = b.x - gs.camX;
-        const sy = b.y - gs.camY;
-        if (sx > -b.w && sx < CW && sy > -b.h && sy < CH) {
-          if (b.type === "hut") {
-            ctx.fillStyle = "#5C3D1A";
-            ctx.fillRect(sx, sy, b.w, b.h);
-            ctx.fillStyle = "#7A4E2A";
-            ctx.fillRect(sx, sy, b.w, 6);
-            ctx.strokeStyle = "#3A2010";
-            ctx.lineWidth = 1.5;
-            ctx.strokeRect(sx, sy, b.w, b.h);
-          } else {
-            ctx.fillStyle = "#555";
-            ctx.fillRect(sx, sy, b.w, b.h);
-            ctx.strokeStyle = "#333";
-            ctx.lineWidth = 1;
-            ctx.strokeRect(sx, sy, b.w, b.h);
-          }
-        }
-      }
-
-      // Trees
-      for (const t of treesRef.current) {
-        const sp = wts(t.x, t.y);
-        if (sp.x < -t.r || sp.x > CW + t.r || sp.y < -t.r || sp.y > CH + t.r)
-          continue;
+  // === WAR SMOKE COLUMNS (level 5+) ===
+  if (warLevel >= 5) {
+    const smokePositions = [vw * 0.08, vw * 0.5, vw * 0.92];
+    for (let sci = 0; sci < smokePositions.length; sci++) {
+      const scx = smokePositions[sci];
+      for (let si = 0; si < 5; si++) {
+        const rise = (now * 0.035 + si * 30 + sci * 100) % 100;
+        const ssx = scx + Math.sin(now * 0.001 + si + sci) * 10;
+        const ssy = VPY - 20 - rise;
+        const sr = 10 + si * 4;
         ctx.save();
-        ctx.shadowColor = t.color;
-        ctx.shadowBlur = 6;
-        ctx.fillStyle = t.color;
+        ctx.globalAlpha =
+          0.12 * (1 - rise / 100) * Math.min(1, (warLevel - 4) * 0.5);
+        ctx.fillStyle = "#333";
         ctx.beginPath();
-        ctx.arc(sp.x, sp.y, t.r, 0, Math.PI * 2);
+        ctx.arc(ssx, ssy, sr, 0, Math.PI * 2);
         ctx.fill();
         ctx.restore();
       }
+    }
+  }
 
-      // Loot
-      for (const l of lootRef.current) {
-        if (!l.alive) continue;
-        const sp = wts(l.x, l.y);
-        if (sp.x < -20 || sp.x > CW + 20 || sp.y < -20 || sp.y > CH + 20)
-          continue;
-        const bob = Math.sin(now * 0.004 + l.id) * 3;
-        if (l.type === "health") {
-          ctx.save();
-          ctx.translate(sp.x, sp.y + bob);
-          ctx.rotate(Math.PI / 4);
-          ctx.fillStyle = "#4CAF50";
-          ctx.fillRect(-8, -8, 16, 16);
-          ctx.restore();
-          ctx.fillStyle = "#80E080";
-          ctx.font = "bold 9px sans-serif";
-          ctx.textAlign = "center";
-          ctx.fillText("+HP", sp.x, sp.y - 14 + bob);
-        } else {
-          const colors: Record<string, string> = {
-            sword: "#C9A35A",
-            bow: "#8B6914",
-            spear: "#A0522D",
-          };
-          ctx.fillStyle = colors[l.type] || "#888";
-          ctx.fillRect(sp.x - 6, sp.y - 3 + bob, 20, 5);
-          ctx.fillStyle = "#fff";
-          ctx.font = "8px sans-serif";
-          ctx.textAlign = "center";
-          ctx.fillText(l.type.toUpperCase(), sp.x + 4, sp.y - 8 + bob);
-        }
-        if (dist(p.x, p.y, l.x, l.y) < 50) {
-          ctx.fillStyle = "rgba(255,255,255,0.9)";
-          ctx.font = "bold 10px sans-serif";
-          ctx.textAlign = "center";
-          ctx.fillText("[R] PICK UP", sp.x, sp.y + 20);
-        }
+  // === BURNING BUILDING FIRE OVERLAY ===
+  for (const bb of state.burningBuildings) {
+    if (bb.fireTimer <= 0) continue;
+    const b = state.buildings[bb.buildingIdx];
+    if (!b) continue;
+    const fireAlpha = (bb.fireTimer / bb.maxFireTime) * 0.7;
+    const onLeft = b.x < MAP_W / 2;
+    const fireCenterX = onLeft ? vw * 0.12 : vw * 0.84;
+    const fireCenterY = vh * 0.42;
+    ctx.save();
+    for (let fi = 0; fi < 5; fi++) {
+      const fx = fireCenterX + (fi - 2) * 22 + Math.sin(now * 0.007 + fi) * 8;
+      const fy = fireCenterY + Math.sin(now * 0.005 + fi * 1.4) * 8;
+      const fh = 38 + Math.sin(now * 0.009 + fi) * 12;
+      const fg2 = ctx.createRadialGradient(fx, fy, 2, fx, fy - fh, fh * 1.3);
+      fg2.addColorStop(0, "#FFFF00");
+      fg2.addColorStop(0.4, "#FF5500");
+      fg2.addColorStop(1, "rgba(200,0,0,0)");
+      ctx.globalAlpha = fireAlpha * (0.6 + Math.sin(now * 0.01 + fi) * 0.3);
+      ctx.fillStyle = fg2;
+      ctx.beginPath();
+      ctx.arc(fx, fy - fh * 0.3, fh * 0.7, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // === BOSS ZONE INDICATORS ===
+  for (const e of state.enemies) {
+    if (!e.alive || !e.isBoss) continue;
+    const bsx = e.x - camX;
+    const bsy = e.y - camY;
+    if (bsx < -400 || bsx > vw + 400 || bsy < -400 || bsy > vh + 400) continue;
+    ctx.save();
+    ctx.globalAlpha = 0.08 + 0.04 * Math.sin(now * 0.003);
+    ctx.strokeStyle = e.colorAccent;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([8, 6]);
+    ctx.beginPath();
+    ctx.arc(bsx, bsy, 80, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+  }
+}
+
+function drawHUD(
+  ctx: CanvasRenderingContext2D,
+  state: GameState,
+  heroName: string,
+  _heroBodyColor: string,
+  vw: number,
+  vh: number,
+) {
+  // Hero HP bar
+  ctx.save();
+  ctx.fillStyle = "rgba(0,0,0,0.55)";
+  ctx.roundRect(12, 12, 220, 56, 8);
+  ctx.fill();
+  ctx.font = "bold 12px sans-serif";
+  ctx.fillStyle = "#FFF";
+  ctx.textAlign = "left";
+  ctx.fillText(heroName, 20, 30);
+  ctx.fillStyle = "rgba(255,255,255,0.2)";
+  ctx.fillRect(20, 36, 200, 14);
+  const hpPct = state.player.hp / 100;
+  ctx.fillStyle =
+    hpPct > 0.5 ? "#4CAF50" : hpPct > 0.25 ? "#FF9800" : "#F44336";
+  ctx.fillRect(20, 36, 200 * hpPct, 14);
+  ctx.fillStyle = "#FFF";
+  ctx.font = "bold 10px sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText(`${state.player.hp}/100`, 120, 47);
+  ctx.restore();
+
+  // Bomb count (below HP)
+  ctx.save();
+  ctx.fillStyle = "rgba(0,0,0,0.55)";
+  ctx.roundRect(12, 76, 100, 32, 8);
+  ctx.fill();
+  ctx.font = "bold 14px sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillStyle = state.bombCount > 0 ? "#FF9800" : "#888";
+  ctx.fillText(`💣 x${state.bombCount}`, 62, 97);
+  if (state.bombCooldown > 0) {
+    ctx.fillStyle = "rgba(255,255,255,0.5)";
+    ctx.font = "9px sans-serif";
+    ctx.fillText("reload...", 62, 107);
+  }
+  ctx.restore();
+
+  // Level indicator (top-center)
+  ctx.save();
+  ctx.fillStyle = "rgba(0,0,0,0.7)";
+  ctx.roundRect(vw / 2 - 80, 12, 160, 50, 8);
+  ctx.fill();
+  ctx.font = "bold 11px sans-serif";
+  ctx.fillStyle = "#FF9800";
+  ctx.textAlign = "center";
+  ctx.fillText("DHURANDHAR", vw / 2, 30);
+  ctx.font = "bold 22px sans-serif";
+  ctx.fillStyle = "#FFD700";
+  ctx.fillText(`LEVEL ${state.currentLevel}`, vw / 2, 54);
+  ctx.restore();
+
+  // Enemies remaining (top-right)
+  const _totalBosses = 4;
+  const aliveCount = state.enemies.filter((e) => e.alive).length;
+  ctx.save();
+  ctx.fillStyle = "rgba(0,0,0,0.55)";
+  ctx.roundRect(vw - 190, 12, 178, 56, 8);
+  ctx.fill();
+  ctx.font = "bold 13px sans-serif";
+  ctx.fillStyle = "#FFD54F";
+  ctx.textAlign = "center";
+  ctx.fillText("⚡ KARMA", vw - 100, 32);
+  ctx.fillStyle = aliveCount > 0 ? "#EF9A9A" : "#69F0AE";
+  ctx.font = "bold 18px sans-serif";
+  ctx.fillText(
+    aliveCount > 0 ? `${aliveCount} remaining` : "WAVE CLEAR!",
+    vw - 100,
+    54,
+  );
+  ctx.restore();
+
+  // Minimap (bottom-right)
+  const mmSize = 150;
+  const mmPad = 12;
+  const mmX = vw - mmSize - mmPad;
+  const mmY = vh - mmSize - mmPad - 22;
+  const scaleX = mmSize / MAP_W;
+  const scaleY = mmSize / MAP_H;
+
+  ctx.save();
+  ctx.fillStyle = "rgba(0,0,0,0.65)";
+  ctx.strokeStyle = "rgba(255,200,50,0.6)";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.rect(mmX, mmY, mmSize, mmSize);
+  ctx.fill();
+  ctx.stroke();
+
+  // Buildings on minimap
+  ctx.fillStyle = "rgba(140,120,100,0.5)";
+  for (const b of state.buildings) {
+    ctx.fillRect(
+      mmX + b.x * scaleX,
+      mmY + b.y * scaleY,
+      Math.max(2, b.w * scaleX),
+      Math.max(2, b.h * scaleY),
+    );
+  }
+
+  // Burning buildings on minimap
+  ctx.fillStyle = "rgba(255,100,0,0.8)";
+  for (const bb of state.burningBuildings) {
+    if (bb.fireTimer <= 0) continue;
+    const b = state.buildings[bb.buildingIdx];
+    if (!b) continue;
+    ctx.fillRect(
+      mmX + b.x * scaleX,
+      mmY + b.y * scaleY,
+      Math.max(3, b.w * scaleX),
+      Math.max(3, b.h * scaleY),
+    );
+  }
+
+  // Enemies on minimap
+  for (const e of state.enemies) {
+    if (!e.alive) continue;
+    ctx.beginPath();
+    ctx.arc(
+      mmX + e.x * scaleX,
+      mmY + e.y * scaleY,
+      e.isBoss ? 4 : 2.5,
+      0,
+      Math.PI * 2,
+    );
+    ctx.fillStyle = e.isBoss ? "#FF8F00" : "#F44336";
+    ctx.fill();
+  }
+
+  // Player on minimap
+  ctx.beginPath();
+  ctx.arc(
+    mmX + state.player.x * scaleX,
+    mmY + state.player.y * scaleY,
+    4,
+    0,
+    Math.PI * 2,
+  );
+  ctx.fillStyle = "#2196F3";
+  ctx.fill();
+  ctx.strokeStyle = "#FFF";
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  ctx.font = "9px sans-serif";
+  ctx.fillStyle = "rgba(255,220,100,0.8)";
+  ctx.textAlign = "center";
+  ctx.fillText("MAP", mmX + mmSize / 2, mmY - 3);
+  ctx.restore();
+
+  // Copyright
+  ctx.save();
+  ctx.fillStyle = "rgba(0,0,0,0.7)";
+  ctx.fillRect(0, vh - 22, vw, 22);
+  ctx.font = "10px sans-serif";
+  ctx.fillStyle = "rgba(255,255,255,0.85)";
+  ctx.textAlign = "center";
+  ctx.fillText(
+    "© 2026 Dhurandhar | Priyanka Sharma | priyankadsharma11@gmail.com | All Rights Reserved",
+    vw / 2,
+    vh - 7,
+  );
+  ctx.restore();
+}
+
+function drawJoystick(
+  ctx: CanvasRenderingContext2D,
+  joy: GameState["joystick"],
+  _vw: number,
+  vh: number,
+) {
+  if (!joy.active) {
+    ctx.save();
+    ctx.globalAlpha = 0.25;
+    ctx.strokeStyle = "#FFF";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(80, vh - 100, 45, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(80, vh - 100, 20, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.restore();
+    return;
+  }
+  ctx.save();
+  ctx.globalAlpha = 0.55;
+  ctx.strokeStyle = "#FFF";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(joy.baseX, joy.baseY, 45, 0, Math.PI * 2);
+  ctx.stroke();
+  const kx = joy.baseX + joy.dx;
+  const ky = joy.baseY + joy.dy;
+  ctx.fillStyle = "rgba(255,255,255,0.6)";
+  ctx.beginPath();
+  ctx.arc(kx, ky, 22, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
+function drawFireButton(
+  ctx: CanvasRenderingContext2D,
+  vw: number,
+  vh: number,
+  bombCount: number,
+) {
+  // FIRE button
+  ctx.save();
+  ctx.globalAlpha = 0.7;
+  const bx = vw - 80;
+  const by = vh - 110;
+  const grad = ctx.createRadialGradient(bx, by, 5, bx, by, 42);
+  grad.addColorStop(0, "#FF5252");
+  grad.addColorStop(1, "#B71C1C");
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(bx, by, 42, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#FF8A80";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.fillStyle = "#FFF";
+  ctx.font = "bold 14px sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("FIRE", bx, by);
+
+  // BOMB button
+  const bombBx = vw - 155;
+  const bombBy = vh - 90;
+  ctx.globalAlpha = bombCount > 0 ? 0.75 : 0.35;
+  const bgrad = ctx.createRadialGradient(bombBx, bombBy, 4, bombBx, bombBy, 34);
+  bgrad.addColorStop(0, bombCount > 0 ? "#FFB300" : "#666");
+  bgrad.addColorStop(1, bombCount > 0 ? "#E65100" : "#333");
+  ctx.fillStyle = bgrad;
+  ctx.beginPath();
+  ctx.arc(bombBx, bombBy, 34, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = bombCount > 0 ? "#FFD54F" : "#888";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.fillStyle = "#FFF";
+  ctx.font = "bold 13px sans-serif";
+  ctx.fillText("💣", bombBx, bombBy - 4);
+  ctx.font = "9px sans-serif";
+  ctx.fillText(`x${bombCount}`, bombBx, bombBy + 12);
+
+  ctx.textBaseline = "alphabetic";
+  ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
+function drawNPC(
+  ctx: CanvasRenderingContext2D,
+  npc: NPC,
+  screenX: number,
+  screenY: number,
+) {
+  ctx.save();
+  ctx.translate(screenX, screenY);
+  if (npc.facing < 0) ctx.scale(-1, 1);
+
+  // Ground shadow
+  ctx.save();
+  ctx.globalAlpha = 0.25;
+  ctx.fillStyle = "#000";
+  ctx.beginPath();
+  ctx.ellipse(0, 30, 12, 3.5, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  if (npc.type === "ally_soldier") {
+    // ═══════════════════════════════════════
+    // INDIAN ARMY ALLIED SOLDIER
+    // Olive green Indian Army cut uniform + INSAS rifle
+    // ═══════════════════════════════════════
+    // Boots
+    ctx.fillStyle = "#1a1a1a";
+    ctx.fillRect(-5, 24, 5, 7);
+    ctx.fillRect(2, 24, 5, 7);
+    ctx.fillStyle = "#2a2a2a";
+    ctx.fillRect(-4, 24, 3, 2);
+    ctx.fillRect(3, 24, 3, 2);
+    // Legs
+    let slg = ctx.createLinearGradient(-6, 0, 0, 0);
+    slg.addColorStop(0, "#4a5e30");
+    slg.addColorStop(0.6, "#3A4A2E");
+    slg.addColorStop(1, "#2a3a1e");
+    ctx.fillStyle = slg;
+    ctx.fillRect(-6, 10, 6, 15);
+    let srg = ctx.createLinearGradient(2, 0, 8, 0);
+    srg.addColorStop(0, "#4a5e30");
+    srg.addColorStop(0.6, "#3A4A2E");
+    srg.addColorStop(1, "#2a3a1e");
+    ctx.fillStyle = srg;
+    ctx.fillRect(2, 10, 6, 15);
+    // Torso — olive green Indian Army uniform
+    let stg = ctx.createLinearGradient(-10, 0, 10, 0);
+    stg.addColorStop(0, "#5a7040");
+    stg.addColorStop(0.5, "#4A5E3A");
+    stg.addColorStop(1, "#2a3a1e");
+    ctx.fillStyle = stg;
+    ctx.beginPath();
+    ctx.roundRect(-10, -5, 20, 17, 3);
+    ctx.fill();
+    // Collar & button line
+    ctx.strokeStyle = "rgba(0,0,0,0.3)";
+    ctx.lineWidth = 0.8;
+    ctx.beginPath();
+    ctx.moveTo(0, -5);
+    ctx.lineTo(0, 10);
+    ctx.stroke();
+    // Camo pattern spots
+    ctx.fillStyle = "rgba(0,0,0,0.12)";
+    for (const [cx2, cy2] of [
+      [-6, 0],
+      [3, 3],
+      [-4, 7],
+      [5, -2],
+    ]) {
+      ctx.beginPath();
+      ctx.ellipse(cx2, cy2, 2.5, 1.5, 0.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // Shoulder epaulettes
+    ctx.fillStyle = "#3A4A2E";
+    ctx.beginPath();
+    ctx.roundRect(-13, -5, 5, 5, 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.roundRect(8, -5, 5, 5, 2);
+    ctx.fill();
+    // Gold rank pip
+    ctx.fillStyle = "#FFD700";
+    ctx.beginPath();
+    ctx.arc(-10, -2, 1.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(11, -2, 1.5, 0, Math.PI * 2);
+    ctx.fill();
+    // Arms
+    let salg = ctx.createLinearGradient(-15, 0, -8, 0);
+    salg.addColorStop(0, "#5a7040");
+    salg.addColorStop(1, "#2a3a1e");
+    ctx.fillStyle = salg;
+    ctx.beginPath();
+    ctx.roundRect(-14, -4, 6, 15, 3);
+    ctx.fill();
+    let sarg = ctx.createLinearGradient(8, 0, 14, 0);
+    sarg.addColorStop(0, "#5a7040");
+    sarg.addColorStop(1, "#2a3a1e");
+    ctx.fillStyle = sarg;
+    ctx.beginPath();
+    ctx.roundRect(8, -4, 6, 11, 3);
+    ctx.fill();
+    // INSAS rifle
+    ctx.fillStyle = "#1a1a1a";
+    ctx.beginPath();
+    ctx.roundRect(9, 0, 22, 4, 1);
+    ctx.fill();
+    ctx.fillStyle = "#333";
+    ctx.fillRect(11, 0, 16, 1.5);
+    ctx.fillStyle = "#111";
+    ctx.fillRect(29, 1, 6, 2);
+    ctx.fillStyle = "#4a3010";
+    ctx.beginPath();
+    ctx.roundRect(9, 2, 4, 6, 1);
+    ctx.fill();
+    ctx.fillStyle = "#222";
+    ctx.beginPath();
+    ctx.roundRect(19, 4, 4, 7, 1);
+    ctx.fill();
+    // Helmet (olive peaked hat)
+    ctx.fillStyle = "#4A5E3A";
+    ctx.beginPath();
+    ctx.ellipse(0, -17, 9, 4, 0, Math.PI, Math.PI * 2);
+    ctx.fill();
+    ctx.fillRect(-9, -20, 18, 5);
+    ctx.fillStyle = "#2a3a1e";
+    ctx.fillRect(-10, -17, 20, 2);
+    // Head
+    let shg = ctx.createRadialGradient(-2, -12, 1.5, 0, -11, 9);
+    shg.addColorStop(0, "#d4a870");
+    shg.addColorStop(0.7, "#C08040");
+    shg.addColorStop(1, "#8a5020");
+    ctx.fillStyle = shg;
+    ctx.beginPath();
+    ctx.ellipse(0, -11, 7, 9, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Eyes
+    ctx.fillStyle = "#fff";
+    ctx.beginPath();
+    ctx.ellipse(-3, -12, 2, 1.8, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(3, -12, 2, 1.8, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#333";
+    ctx.beginPath();
+    ctx.arc(-3, -12, 1, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(3, -12, 1, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#2a1a0a";
+    ctx.lineWidth = 1.3;
+    ctx.beginPath();
+    ctx.moveTo(-5, -13);
+    ctx.quadraticCurveTo(-3, -14.5, -1, -13);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(1, -13);
+    ctx.quadraticCurveTo(3, -14.5, 5, -13);
+    ctx.stroke();
+    ctx.fillStyle = "#a06030";
+    ctx.beginPath();
+    ctx.arc(0, -9, 1.3, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (npc.type === "civilian_woman") {
+    // ═══════════════════════════════════════
+    // INDIAN CIVILIAN WOMAN
+    // Bright orange/red sari + bindi + hair bun + bangles
+    // ═══════════════════════════════════════
+    // Feet
+    ctx.fillStyle = "#4a3020";
+    ctx.fillRect(-4, 22, 4, 6);
+    ctx.fillRect(1, 22, 4, 6);
+    // Sari skirt (flowing from waist to feet)
+    ctx.fillStyle = "#E8421A";
+    ctx.beginPath();
+    ctx.moveTo(-8, 8);
+    ctx.lineTo(-9, 24);
+    ctx.lineTo(9, 24);
+    ctx.lineTo(8, 8);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#C4340E";
+    ctx.beginPath();
+    ctx.moveTo(-2, 8);
+    ctx.lineTo(-3, 24);
+    ctx.lineTo(2, 24);
+    ctx.lineTo(2, 8);
+    ctx.closePath();
+    ctx.fill();
+    // Sari gold border
+    ctx.strokeStyle = "#FFD700";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(-9, 22);
+    ctx.lineTo(9, 22);
+    ctx.stroke();
+    // Blouse/choli
+    let wbg = ctx.createLinearGradient(-8, 0, 8, 0);
+    wbg.addColorStop(0, "#FF7043");
+    wbg.addColorStop(0.5, "#FF6B35");
+    wbg.addColorStop(1, "#CC4010");
+    ctx.fillStyle = wbg;
+    ctx.beginPath();
+    ctx.roundRect(-7, -4, 14, 14, 3);
+    ctx.fill();
+    // Sari pallu draped over left shoulder
+    ctx.fillStyle = "rgba(232,66,26,0.8)";
+    ctx.beginPath();
+    ctx.moveTo(-7, -4);
+    ctx.lineTo(-10, -4);
+    ctx.lineTo(-12, 10);
+    ctx.lineTo(-8, 8);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = "#FFD700";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(-10, -4);
+    ctx.lineTo(-12, 8);
+    ctx.stroke();
+    // Arms
+    ctx.fillStyle = "#E06030";
+    ctx.beginPath();
+    ctx.roundRect(-11, -3, 5, 12, 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.roundRect(6, -3, 5, 12, 2);
+    ctx.fill();
+    // Bangles on wrists
+    const bangColors = ["#FFD700", "#E8421A", "#FFD700"];
+    for (let i = 0; i < bangColors.length; i++) {
+      const c = bangColors[i];
+      ctx.strokeStyle = c;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.ellipse(-8, 7 + i, 2, 1.2, 0.3, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.ellipse(10, 7 + i, 2, 1.2, -0.3, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    // Head
+    let whg = ctx.createRadialGradient(-1.5, -12, 1.5, 0, -11, 8);
+    whg.addColorStop(0, "#e0a878");
+    whg.addColorStop(0.7, "#C48050");
+    whg.addColorStop(1, "#906030");
+    ctx.fillStyle = whg;
+    ctx.beginPath();
+    ctx.ellipse(0, -11, 6, 9, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Bindi (red dot on forehead)
+    ctx.fillStyle = "#C62828";
+    ctx.beginPath();
+    ctx.arc(0, -14, 1.8, 0, Math.PI * 2);
+    ctx.fill();
+    // Hair bun (dark, on top/back of head)
+    ctx.fillStyle = "#111";
+    ctx.beginPath();
+    ctx.ellipse(0, -20, 6, 3, 0, Math.PI, Math.PI * 2);
+    ctx.fill();
+    ctx.fillRect(-6, -20, 12, 3);
+    ctx.beginPath();
+    ctx.ellipse(1, -21, 4, 3, 0.3, 0, Math.PI * 2);
+    ctx.fill(); // bun
+    // Eyes
+    ctx.fillStyle = "#fff";
+    ctx.beginPath();
+    ctx.ellipse(-2.5, -12, 2, 1.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(2.5, -12, 2, 1.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#333";
+    ctx.beginPath();
+    ctx.arc(-2.5, -12, 1, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(2.5, -12, 1, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "rgba(255,255,255,0.9)";
+    ctx.beginPath();
+    ctx.arc(-2, -12.4, 0.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(3, -12.4, 0.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#1a1a1a";
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(-4, -13);
+    ctx.quadraticCurveTo(-2.5, -14.5, -1, -13);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(1, -13);
+    ctx.quadraticCurveTo(2.5, -14.5, 4, -13);
+    ctx.stroke();
+    ctx.fillStyle = "#906030";
+    ctx.beginPath();
+    ctx.arc(0, -9.5, 1.2, 0, Math.PI * 2);
+    ctx.fill();
+    // Smile
+    ctx.strokeStyle = "#804020";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(-2.5, -7.5);
+    ctx.quadraticCurveTo(0, -6, 2.5, -7.5);
+    ctx.stroke();
+  } else {
+    // ═══════════════════════════════════════
+    // INDIAN CIVILIAN MAN
+    // Saffron kurta + white dhoti + Gandhi cap + mustache
+    // ═══════════════════════════════════════
+    // Sandals / feet
+    ctx.fillStyle = "#6b4020";
+    ctx.beginPath();
+    ctx.roundRect(-5, 23, 5, 5, 1);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.roundRect(1, 23, 5, 5, 1);
+    ctx.fill();
+    ctx.strokeStyle = "#8b5030";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(-4, 25);
+    ctx.lineTo(0, 25);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(2, 25);
+    ctx.lineTo(5, 25);
+    ctx.stroke();
+    // Dhoti (white lower body)
+    ctx.fillStyle = "#e8e8e0";
+    ctx.fillRect(-5, 10, 5, 15);
+    ctx.fillRect(1, 10, 5, 15);
+    ctx.strokeStyle = "#ccc";
+    ctx.lineWidth = 0.8;
+    ctx.beginPath();
+    ctx.moveTo(-5, 14);
+    ctx.lineTo(0, 14);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(2, 14);
+    ctx.lineTo(6, 14);
+    ctx.stroke();
+    // Kurta top (saffron orange)
+    let mtg = ctx.createLinearGradient(-10, 0, 10, 0);
+    mtg.addColorStop(0, "#FFB040");
+    mtg.addColorStop(0.5, "#FF9933");
+    mtg.addColorStop(1, "#CC7010");
+    ctx.fillStyle = mtg;
+    ctx.beginPath();
+    ctx.roundRect(-9, -5, 18, 17, 3);
+    ctx.fill();
+    // Kurta collar / button line
+    ctx.strokeStyle = "rgba(0,0,0,0.25)";
+    ctx.lineWidth = 0.8;
+    ctx.beginPath();
+    ctx.moveTo(0, -5);
+    ctx.lineTo(0, 10);
+    ctx.stroke();
+    ctx.fillStyle = "#CC7010";
+    for (let i = 0; i < 3; i++) {
+      ctx.beginPath();
+      ctx.arc(0, -3 + i * 5, 0.8, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // Arms
+    let malg = ctx.createLinearGradient(-14, 0, -8, 0);
+    malg.addColorStop(0, "#FFB040");
+    malg.addColorStop(1, "#CC7010");
+    ctx.fillStyle = malg;
+    ctx.beginPath();
+    ctx.roundRect(-13, -4, 5, 14, 2);
+    ctx.fill();
+    let marg = ctx.createLinearGradient(8, 0, 14, 0);
+    marg.addColorStop(0, "#FFB040");
+    marg.addColorStop(1, "#CC7010");
+    ctx.fillStyle = marg;
+    ctx.beginPath();
+    ctx.roundRect(8, -4, 5, 14, 2);
+    ctx.fill();
+    // Head
+    let mhg = ctx.createRadialGradient(-1.5, -13, 1.5, 0, -12, 9);
+    mhg.addColorStop(0, "#d4a870");
+    mhg.addColorStop(0.7, "#B88050");
+    mhg.addColorStop(1, "#8a5020");
+    ctx.fillStyle = mhg;
+    ctx.beginPath();
+    ctx.ellipse(0, -12, 7, 9, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Gandhi cap (white, flat)
+    ctx.fillStyle = "#f0f0e8";
+    ctx.beginPath();
+    ctx.ellipse(0, -20, 7.5, 3, 0, Math.PI, Math.PI * 2);
+    ctx.fill();
+    ctx.fillRect(-7.5, -20, 15, 3);
+    ctx.fillStyle = "#e0e0d0";
+    ctx.fillRect(-7.5, -20, 15, 1.5);
+    // Indian tricolor motif on cap
+    ctx.fillStyle = "#FF9933";
+    ctx.fillRect(-3, -21, 6, 1);
+    ctx.fillStyle = "#138808";
+    ctx.fillRect(-3, -20, 6, 1);
+    // Mustache (kind, full)
+    ctx.fillStyle = "#2a1a0a";
+    ctx.beginPath();
+    ctx.ellipse(0, -9.5, 5, 2.5, 0, 0, Math.PI);
+    ctx.fill();
+    ctx.strokeStyle = "#111";
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(-5, -9.5);
+    ctx.quadraticCurveTo(0, -7.5, 5, -9.5);
+    ctx.stroke();
+    // Eyes
+    ctx.fillStyle = "#fff";
+    ctx.beginPath();
+    ctx.ellipse(-3, -13, 2, 1.8, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(3, -13, 2, 1.8, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#333";
+    ctx.beginPath();
+    ctx.arc(-3, -13, 1, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(3, -13, 1, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "rgba(255,255,255,0.85)";
+    ctx.beginPath();
+    ctx.arc(-2.5, -13.5, 0.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(3.5, -13.5, 0.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#2a1a0a";
+    ctx.lineWidth = 1.3;
+    ctx.beginPath();
+    ctx.moveTo(-5, -14);
+    ctx.quadraticCurveTo(-3, -15.5, -1, -14);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(1, -14);
+    ctx.quadraticCurveTo(3, -15.5, 5, -14);
+    ctx.stroke();
+    ctx.fillStyle = "#906030";
+    ctx.beginPath();
+    ctx.arc(0, -10.5, 1.3, 0, Math.PI * 2);
+    ctx.fill();
+    // Kind smile
+    ctx.strokeStyle = "#804020";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(-3, -7.5);
+    ctx.quadraticCurveTo(0, -6, 3, -7.5);
+    ctx.stroke();
+  }
+
+  ctx.restore();
+
+  if (npc.hintVisible) {
+    const text = npc.hint;
+    ctx.save();
+    ctx.font = "bold 11px sans-serif";
+    const tw = ctx.measureText(text).width;
+    const bw = tw + 16;
+    const bh = 28;
+    const bx = screenX - bw / 2;
+    const by = screenY - 70;
+    ctx.fillStyle = "rgba(255,250,220,0.95)";
+    ctx.strokeStyle = "#FF9933";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.roundRect(bx, by, bw, bh, 6);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "rgba(255,250,220,0.95)";
+    ctx.beginPath();
+    ctx.moveTo(screenX - 6, by + bh);
+    ctx.lineTo(screenX, by + bh + 8);
+    ctx.lineTo(screenX + 6, by + bh);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#333";
+    ctx.textAlign = "center";
+    ctx.fillText(text, screenX, by + 18);
+    ctx.restore();
+  }
+}
+
+// Pure helper: project world-space position to alley perspective screen coords
+function worldToAlleyScreen(
+  worldX: number,
+  worldY: number,
+  playerX: number,
+  playerY: number,
+  vw: number,
+  vh: number,
+): { sx: number; sy: number; scale: number; visible: boolean } {
+  const VPX = vw / 2;
+  const VPY = vh * 0.33;
+  const GROUND_Y = vh * 0.84;
+  const FOCAL = 180;
+
+  const relX = worldX - playerX;
+  const relY = worldY - playerY;
+  const depth = Math.sqrt(relX * relX + relY * relY);
+
+  if (depth < 5) {
+    return { sx: VPX, sy: GROUND_Y - 32, scale: 1.8, visible: true };
+  }
+
+  const perspDiv = Math.max(1, depth * 0.007);
+  const sx = VPX + relX / perspDiv;
+
+  const groundRange = GROUND_Y - (VPY + 28);
+  const distFactor = Math.min(1, depth / 450);
+  const sy = GROUND_Y - groundRange * (1 - distFactor) - 28;
+
+  const scale = Math.max(0.1, Math.min(1.8, FOCAL / Math.max(30, depth)));
+  const visible =
+    sx > -160 && sx < vw + 160 && sy > VPY - 20 && sy < GROUND_Y + 50;
+
+  return { sx, sy, scale, visible };
+}
+
+// ── Main Component ─────────────────────────────────────────────────────────────
+export default function GameCanvas() {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [gamePhase, setGamePhase] = useState<GamePhase>("menu");
+  const [selectedHero, setSelectedHero] = useState(0);
+  const [muted, setMuted] = useState(false);
+  const stateRef = useRef<GameState | null>(null);
+  const animFrameRef = useRef<number>(0);
+  const phaseRef = useRef<GamePhase>("menu");
+  const bgMusicStopRef = useRef<(() => void) | null>(null);
+  const selectedHeroRef = useRef(0);
+  const mobileFireRef = useRef(false);
+  const mobileBombRef = useRef(false);
+
+  useEffect(() => {
+    phaseRef.current = gamePhase;
+  }, [gamePhase]);
+  useEffect(() => {
+    selectedHeroRef.current = selectedHero;
+  }, [selectedHero]);
+
+  const initGame = useCallback(
+    (_heroIdx: number) => {
+      const { buildings, palmTrees } = generateMap();
+      const rand = seededRand(99);
+
+      const enemies: Enemy[] = [];
+      let eid = 0;
+
+      // Grunts
+      for (let i = 0; i < 5; i++) {
+        const pos = GRUNT_ZONE_POSITIONS[i];
+        enemies.push({
+          id: eid++,
+          x: pos.x + (rand() - 0.5) * 100,
+          y: pos.y + (rand() - 0.5) * 100,
+          vx: 0,
+          vy: 0,
+          hp: 50,
+          maxHp: 50,
+          state: "idle",
+          isBoss: false,
+          name: `Grunt ${i + 1}`,
+          zone: "any",
+          colorAccent: "#4CAF50",
+          uniform: "#388E3C",
+          shootTimer: ENEMY_SHOOT_INTERVAL,
+          stateTimer: 0,
+          patrolTarget: {
+            x: pos.x + (rand() - 0.5) * 200,
+            y: pos.y + (rand() - 0.5) * 200,
+          },
+          alive: true,
+          flashTimer: 0,
+        });
+      }
+
+      // Bosses
+      for (const bd of BOSS_DATA) {
+        enemies.push({
+          id: eid++,
+          x: bd.spawnX,
+          y: bd.spawnY,
+          vx: 0,
+          vy: 0,
+          hp: 150,
+          maxHp: 150,
+          state: "idle",
+          isBoss: true,
+          name: bd.name,
+          zone: bd.zone,
+          colorAccent: bd.colorAccent,
+          uniform: bd.uniform,
+          shootTimer: BOSS_SHOOT_INTERVAL,
+          stateTimer: 0,
+          patrolTarget: {
+            x: bd.spawnX + (rand() - 0.5) * 150,
+            y: bd.spawnY + (rand() - 0.5) * 150,
+          },
+          alive: true,
+          flashTimer: 0,
+        });
+      }
+
+      // Dust particles
+      const dustParticles: DustParticle[] = [];
+      for (let i = 0; i < 30; i++) {
+        dustParticles.push({
+          x: rand() * MAP_W,
+          y: rand() * MAP_H,
+          vx: (rand() - 0.5) * 0.4,
+          vy: (rand() - 0.5) * 0.4,
+          alpha: 0.05 + rand() * 0.1,
+          size: 2 + rand() * 5,
+        });
       }
 
       // NPCs
-      for (const npc of npcsRef.current) {
-        const sp = wts(npc.x, npc.y);
-        if (sp.x < -40 || sp.x > CW + 40 || sp.y < -40 || sp.y > CH + 40)
-          continue;
-        ctx.save();
-        ctx.shadowColor = npc.color;
-        ctx.shadowBlur = 12;
-        ctx.fillStyle = npc.color;
-        ctx.beginPath();
-        ctx.arc(sp.x, sp.y, 14, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.strokeStyle = "rgba(255,255,255,0.8)";
-        ctx.lineWidth = 2;
-        ctx.stroke();
-        ctx.restore();
-        if (npc.hasCrown) drawCrown(ctx, sp.x, sp.y - 14, 8, npc.crownColor);
-        ctx.fillStyle = "#fff";
-        ctx.font = "bold 10px 'Cinzel', serif";
-        ctx.textAlign = "center";
-        ctx.fillText(npc.name, sp.x, sp.y - 22);
-        if (dist(p.x, p.y, npc.x, npc.y) < 60) {
-          ctx.fillStyle = "#C9A35A";
-          ctx.font = "10px sans-serif";
-          ctx.fillText("[E] TALK", sp.x, sp.y + 26);
-        }
-      }
-
-      // Enemies
-      const bossColors: Record<string, string> = {
-        boss1: "#8B0000",
-        boss2: "#9E9E9E",
-        boss3: "#4E342E",
-        boss4: "#37474F",
-      };
-      for (const e of enemiesRef.current) {
-        const sp = wts(e.x, e.y);
-        if (sp.x < -50 || sp.x > CW + 50 || sp.y < -50 || sp.y > CH + 50)
-          continue;
-        if (!e.alive) {
-          if (e.deathAlpha > 0) {
-            ctx.save();
-            ctx.globalAlpha = e.deathAlpha;
-            ctx.fillStyle = "#fff";
-            ctx.beginPath();
-            ctx.arc(sp.x, sp.y, e.radius + 4, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.restore();
-          }
-          continue;
-        }
-        ctx.save();
-        const bossImgMap: Record<string, string> = {
-          boss1: "rehman",
-          boss2: "sp",
-          boss3: "major",
-          boss4: "jameel",
-        };
-        const bossImgKey = bossImgMap[e.type];
-        const bossImg = bossImgKey ? charImagesRef.current[bossImgKey] : null;
-        if (bossImg?.complete && bossImg.naturalWidth > 0) {
-          if (e.flashTimer > 0) ctx.globalAlpha = 0.4;
-          ctx.drawImage(bossImg, sp.x - 20, sp.y - 40, 40, 60);
-          ctx.globalAlpha = 1;
-        } else {
-          if (e.flashTimer > 0) {
-            ctx.fillStyle = "#ffffff";
-          } else if (e.type === "soldier") {
-            ctx.fillStyle = "#D32F2F";
-          } else {
-            ctx.fillStyle = bossColors[e.type] ?? "#D32F2F";
-          }
-          ctx.shadowColor = ctx.fillStyle;
-          ctx.shadowBlur = e.type === "soldier" ? 6 : 14;
-          ctx.beginPath();
-          ctx.arc(sp.x, sp.y, e.radius, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.strokeStyle = "rgba(255,255,255,0.4)";
-          ctx.lineWidth = e.type === "soldier" ? 1.5 : 2.5;
-          ctx.stroke();
-        }
-        ctx.restore();
-
-        if (e.type === "soldier") {
-          ctx.strokeStyle = "#8B0000";
-          ctx.lineWidth = 4;
-          ctx.beginPath();
-          ctx.arc(sp.x, sp.y - 10, e.radius * 0.7, Math.PI, 0);
-          ctx.stroke();
-        } else {
-          // Boss crown / star
-          drawCrown(ctx, sp.x, sp.y - e.radius, 9, "#FFD700");
-        }
-
-        // Boss name tag
-        ctx.fillStyle = e.type === "soldier" ? "#FF8080" : "#FF4444";
-        ctx.font =
-          e.type === "soldier"
-            ? "bold 8px sans-serif"
-            : "bold 10px 'Cinzel', serif";
-        ctx.textAlign = "center";
-        ctx.fillText(e.name, sp.x, sp.y - e.radius - 6);
-        drawHealthBar(
-          ctx,
-          sp.x,
-          sp.y - e.radius - 14,
-          e.type === "soldier" ? 34 : 50,
-          e.hp,
-          e.maxHp,
-        );
-      }
-
-      // Projectiles
-      for (const proj of projectilesRef.current) {
-        if (!proj.alive) continue;
-        const sp = wts(proj.x, proj.y);
-        const ang = Math.atan2(proj.vy, proj.vx);
-        const len = proj.type === "spear" ? 22 : 14;
-        ctx.save();
-        ctx.strokeStyle =
-          proj.type === "enemy"
-            ? "#9C27B0"
-            : proj.type === "spear"
-              ? "#A0522D"
-              : "#8B6914";
-        ctx.lineWidth = proj.type === "spear" ? 4 : 2;
-        ctx.beginPath();
-        ctx.moveTo(sp.x, sp.y);
-        ctx.lineTo(sp.x - Math.cos(ang) * len, sp.y - Math.sin(ang) * len);
-        ctx.stroke();
-        ctx.restore();
-      }
-
-      // Player
-      if (p.alive) {
-        const sx = wts(p.x, p.y).x;
-        const sy = wts(p.x, p.y).y;
-        ctx.fillStyle = "rgba(0,0,0,0.3)";
-        ctx.beginPath();
-        ctx.ellipse(sx + 3, sy + 6, 14, 6, 0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.save();
-        const pc = HEROES[selectedCharIdxRef.current];
-        const heroKey = selectedCharIdxRef.current === 0 ? "humza" : "ajay";
-        const heroImg = charImagesRef.current[heroKey];
-        if (heroImg?.complete && heroImg.naturalWidth > 0) {
-          ctx.drawImage(heroImg, sx - 20, sy - 40, 40, 60);
-        } else {
-          ctx.shadowColor = pc.shadowColor;
-          ctx.shadowBlur = 16;
-          ctx.fillStyle = pc.color;
-          ctx.beginPath();
-          ctx.arc(sx, sy, 16, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.strokeStyle = "#FFAB40";
-          ctx.lineWidth = 2.5;
-          ctx.stroke();
-        }
-        ctx.restore();
-        ctx.save();
-        ctx.translate(sx, sy);
-        ctx.rotate(p.angle);
-        ctx.fillStyle = WEAPONS[p.weapon].color;
-        if (p.weapon === 0) {
-          ctx.fillRect(12, -3, 22, 5);
-          ctx.fillStyle = "#888";
-          ctx.fillRect(10, -5, 6, 9);
-        } else if (p.weapon === 1) {
-          ctx.strokeStyle = WEAPONS[1].color;
-          ctx.lineWidth = 3;
-          ctx.beginPath();
-          ctx.arc(0, 0, 18, -Math.PI / 3, Math.PI / 3);
-          ctx.stroke();
-          ctx.strokeStyle = "#ccc";
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          ctx.moveTo(18, -10);
-          ctx.lineTo(18, 10);
-          ctx.stroke();
-        } else {
-          ctx.fillRect(12, -2, 30, 4);
-          ctx.fillStyle = "#CCC";
-          ctx.beginPath();
-          ctx.moveTo(42, 0);
-          ctx.lineTo(35, -5);
-          ctx.lineTo(35, 5);
-          ctx.closePath();
-          ctx.fill();
-        }
-        ctx.restore();
-        ctx.fillStyle = "#C9A35A";
-        ctx.font = "bold 11px 'Cinzel', serif";
-        ctx.textAlign = "center";
-        ctx.fillText(HEROES[selectedCharIdxRef.current].name, sx, sy - 24);
-        drawHealthBar(ctx, sx, sy - 20, 50, p.hp, p.maxHp);
-      }
-
-      // Dialogue box
-      if (gs.dialogue) {
-        const bw = 500;
-        const bh = 80;
-        const bx = (CW - bw) / 2;
-        const by = CH - 110;
-        ctx.fillStyle = "rgba(0,0,0,0.88)";
-        ctx.beginPath();
-        ctx.roundRect(bx, by, bw, bh, 8);
-        ctx.fill();
-        ctx.strokeStyle = "#C9A35A";
-        ctx.lineWidth = 2;
-        ctx.stroke();
-        ctx.fillStyle = "#C9A35A";
-        ctx.font = "bold 12px 'Cinzel', serif";
-        ctx.textAlign = "left";
-        ctx.fillText(gs.dialogue.name, bx + 16, by + 22);
-        ctx.fillStyle = "#FFFFFF";
-        ctx.font = "12px sans-serif";
-        ctx.fillText(gs.dialogue.text, bx + 16, by + 44);
-        ctx.fillStyle = "#888";
-        ctx.font = "10px sans-serif";
-        ctx.fillText("[E] Close", bx + 16, by + 66);
-      }
-
-      // Boss elimination flash
-      if (gs.bossElimMsg && Date.now() < gs.bossElimMsg.until) {
-        const progress = (gs.bossElimMsg.until - Date.now()) / 2500;
-        const alpha = Math.min(1, progress * 3);
-        ctx.save();
-        ctx.globalAlpha = alpha;
-        ctx.fillStyle = "rgba(0,0,0,0.7)";
-        ctx.beginPath();
-        ctx.roundRect(CW / 2 - 220, CH / 2 - 30, 440, 60, 10);
-        ctx.fill();
-        ctx.strokeStyle = "#FFD700";
-        ctx.lineWidth = 2;
-        ctx.stroke();
-        ctx.fillStyle = "#FFD700";
-        ctx.font = "bold 22px 'Cinzel', serif";
-        ctx.textAlign = "center";
-        ctx.fillText(gs.bossElimMsg.text, CW / 2, CH / 2 + 8);
-        ctx.restore();
-      }
-
-      // HUD — top-left
-      ctx.fillStyle = "rgba(0,0,0,0.7)";
-      ctx.beginPath();
-      ctx.roundRect(10, 10, 230, 60, 6);
-      ctx.fill();
-      const pc = HEROES[selectedCharIdxRef.current];
-      ctx.fillStyle = pc.color;
-      ctx.beginPath();
-      ctx.arc(30, 30, 14, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = "#C9A35A";
-      ctx.font = "bold 11px 'Cinzel', serif";
-      ctx.textAlign = "left";
-      ctx.fillText("HP", 50, 28);
-      const hpW = 160;
-      ctx.fillStyle = "#333";
-      ctx.fillRect(50, 32, hpW, 12);
-      const hpPct = p.hp / p.maxHp;
-      ctx.fillStyle =
-        hpPct > 0.5 ? "#4CAF50" : hpPct > 0.25 ? "#FF9800" : "#F44336";
-      ctx.fillRect(50, 32, hpW * Math.max(0, hpPct), 12);
-      ctx.strokeStyle = "#555";
-      ctx.lineWidth = 1;
-      ctx.strokeRect(50, 32, hpW, 12);
-      ctx.fillStyle = "#FFF";
-      ctx.font = "10px sans-serif";
-      ctx.fillText(`${p.hp}/${p.maxHp}`, 50, 58);
-      ctx.fillStyle = "#C9A35A";
-      ctx.fillText(WEAPONS[p.weapon].name, 110, 58);
-
-      // HUD — top-right: kills/score + targets
-      const bossesRemaining = enemiesRef.current.filter(
-        (e) => e.type !== "soldier" && e.alive,
-      ).length;
-      ctx.fillStyle = "rgba(0,0,0,0.7)";
-      ctx.beginPath();
-      ctx.roundRect(CW - 190, 10, 180, 72, 6);
-      ctx.fill();
-      ctx.fillStyle = "#FFF";
-      ctx.font = "bold 12px 'Cinzel', serif";
-      ctx.textAlign = "right";
-      ctx.fillText(`KILLS: ${gs.kills}`, CW - 16, 30);
-      ctx.fillStyle = "#C9A35A";
-      ctx.fillText(`SCORE: ${gs.score}`, CW - 16, 50);
-      ctx.fillStyle = bossesRemaining > 0 ? "#FF6060" : "#80FF80";
-      ctx.font = "bold 11px 'Cinzel', serif";
-      ctx.fillText(`TARGETS: ${bossesRemaining}/4`, CW - 16, 72);
-
-      // Zone timer
-      const timeSinceShrink = Date.now() - gs.zoneLastShrink;
-      const countdown = Math.max(
-        0,
-        Math.ceil((ZONE_SHRINK_INTERVAL - timeSinceShrink) / 1000),
-      );
-      const dZone = Math.max(
-        0,
-        Math.round(dist(p.x, p.y, WCX, WCY) - gs.zoneRadius),
-      );
-      const inZone = dZone === 0;
-      ctx.fillStyle = "rgba(0,0,0,0.7)";
-      ctx.beginPath();
-      ctx.roundRect(10, CH - 70, 220, 60, 6);
-      ctx.fill();
-      ctx.textAlign = "left";
-      ctx.fillStyle = inZone ? "#80BFFF" : "#FF4444";
-      ctx.font = "bold 11px 'Cinzel', serif";
-      ctx.fillText(
-        inZone ? "IN SAFE ZONE" : `ZONE DANGER: ${dZone}m`,
-        16,
-        CH - 48,
-      );
-      ctx.fillStyle = "#C9A35A";
-      ctx.font = "11px 'Cinzel', serif";
-      ctx.fillText(`ZONE CLOSES IN: ${countdown}s`, 16, CH - 26);
-
-      // Minimap
-      const MM_SIZE = 120;
-      const MM_X = CW - MM_SIZE - 12;
-      const MM_Y = CH - MM_SIZE - 12;
-      const MM_SCALE = MM_SIZE / WW;
-      ctx.fillStyle = "rgba(0,0,0,0.8)";
-      ctx.fillRect(MM_X, MM_Y, MM_SIZE, MM_SIZE);
-      ctx.strokeStyle = "#C9A35A";
-      ctx.lineWidth = 1.5;
-      ctx.strokeRect(MM_X, MM_Y, MM_SIZE, MM_SIZE);
-      ctx.strokeStyle = "rgba(80,140,255,0.8)";
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.arc(
-        MM_X + WCX * MM_SCALE,
-        MM_Y + WCY * MM_SCALE,
-        gs.zoneRadius * MM_SCALE,
-        0,
-        Math.PI * 2,
-      );
-      ctx.stroke();
-      for (const npc of npcsRef.current) {
-        ctx.fillStyle = "#00BCD4";
-        ctx.beginPath();
-        ctx.arc(
-          MM_X + npc.x * MM_SCALE,
-          MM_Y + npc.y * MM_SCALE,
-          2.5,
-          0,
-          Math.PI * 2,
-        );
-        ctx.fill();
-      }
-      for (const e of enemiesRef.current) {
-        if (!e.alive) continue;
-        ctx.fillStyle = e.type === "soldier" ? "#F44336" : "#FF6D00";
-        ctx.beginPath();
-        ctx.arc(
-          MM_X + e.x * MM_SCALE,
-          MM_Y + e.y * MM_SCALE,
-          e.type === "soldier" ? 2 : 3.5,
-          0,
-          Math.PI * 2,
-        );
-        ctx.fill();
-      }
-      ctx.fillStyle = pc.color;
-      ctx.beginPath();
-      ctx.arc(
-        MM_X + p.x * MM_SCALE,
-        MM_Y + p.y * MM_SCALE,
-        3.5,
-        0,
-        Math.PI * 2,
-      );
-      ctx.fill();
-      ctx.fillStyle = "rgba(255,255,255,0.6)";
-      ctx.font = "8px sans-serif";
-      ctx.textAlign = "center";
-      ctx.fillText("MAP", MM_X + MM_SIZE / 2, MM_Y - 3);
-    },
-    [wts],
-  );
-
-  const drawStartScreen = useCallback(
-    (ctx: CanvasRenderingContext2D, now: number) => {
-      const grad = ctx.createRadialGradient(
-        CW / 2,
-        CH / 2,
-        0,
-        CW / 2,
-        CH / 2,
-        500,
-      );
-      grad.addColorStop(0, "#1a0f00");
-      grad.addColorStop(1, "#0B0C0E");
-      ctx.fillStyle = grad;
-      ctx.fillRect(0, 0, CW, CH);
-      ctx.strokeStyle = "rgba(201,163,90,0.15)";
-      ctx.lineWidth = 1;
-      for (let i = 0; i < 20; i++) {
-        ctx.beginPath();
-        ctx.moveTo(i * 50 + ((now * 0.02) % 50) - 50, 0);
-        ctx.lineTo(i * 50 + ((now * 0.02) % 50) - 50 - 200, CH);
-        ctx.stroke();
-      }
-      ctx.save();
-      ctx.shadowColor = "#C9A35A";
-      ctx.shadowBlur = 40;
-      ctx.fillStyle = "#C9A35A";
-      ctx.font = "bold 72px 'Cinzel', serif";
-      ctx.textAlign = "center";
-      ctx.fillText("DHURANDHAR", CW / 2, CH / 2 - 80);
-      ctx.restore();
-      ctx.fillStyle = "rgba(201,163,90,0.6)";
-      ctx.font = "20px 'Cinzel', serif";
-      ctx.textAlign = "center";
-      ctx.fillText(
-        "HUNT THE TRAITORS — SAVE YOUR COUNTRY",
-        CW / 2,
-        CH / 2 - 38,
-      );
-
-      // Hero silhouettes
-      const chars = [
-        { x: 300, color: "#FF6D00", label: "Humza Ali Mazari" },
-        { x: 650, color: "#3949AB", label: "Ajay Sanyal" },
+      const npcs: NPC[] = [
+        {
+          id: 0,
+          x: MAP_W * 0.3,
+          y: MAP_H * 0.4,
+          type: "civilian_man",
+          hint: "Rehman was spotted south near the market!",
+          facing: 1,
+          hintVisible: false,
+        },
+        {
+          id: 1,
+          x: MAP_W * 0.7,
+          y: MAP_H * 0.35,
+          type: "civilian_woman",
+          hint: "Major Iqbal controls the northern checkpoint!",
+          facing: -1,
+          hintVisible: false,
+        },
+        {
+          id: 2,
+          x: MAP_W * 0.45,
+          y: MAP_H * 0.55,
+          type: "ally_soldier",
+          hint: "SP Aslam hides in the western compound!",
+          facing: 1,
+          hintVisible: false,
+        },
+        {
+          id: 3,
+          x: MAP_W * 0.6,
+          y: MAP_H * 0.7,
+          type: "civilian_man",
+          hint: "Jameel Jamali was seen east near the mosque!",
+          facing: -1,
+          hintVisible: false,
+        },
       ];
-      for (const c of chars) {
-        ctx.fillStyle = `${c.color}66`;
-        ctx.beginPath();
-        ctx.arc(c.x, CH / 2 + 20, 22, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillRect(c.x - 10, CH / 2 + 42, 20, 40);
-        ctx.fillStyle = `${c.color}AA`;
-        ctx.font = "12px 'Cinzel', serif";
-        ctx.textAlign = "center";
-        ctx.fillText(c.label, c.x, CH / 2 + 100);
-      }
 
-      const blink = Math.sin(now * 0.003) > 0;
-      if (blink) {
-        ctx.fillStyle = "#FFFFFF";
-        ctx.font = "18px 'Cinzel', serif";
-        ctx.textAlign = "center";
-        ctx.fillText("TAP TO BEGIN YOUR MISSION", CW / 2, CH / 2 + 130);
-      }
-      ctx.fillStyle = "rgba(201,163,90,0.5)";
-      ctx.font = "12px 'Cinzel', serif";
-      ctx.fillText(
-        "WASD: Move  |  Mouse: Aim  |  Click/Space: Attack  |  E: Interact  |  R: Pick Up",
-        CW / 2,
-        CH - 20,
-      );
+      let audioCtx: AudioContext | null = null;
+      try {
+        audioCtx = new AudioContext();
+      } catch (_) {}
+
+      stateRef.current = {
+        player: {
+          x: MAP_W / 2,
+          y: MAP_H / 2,
+          vx: 0,
+          vy: 0,
+          hp: 100,
+          facing: 1,
+          shootTimer: 0,
+          animFrame: 0,
+          animTimer: 0,
+          isMoving: false,
+        },
+        enemies,
+        bullets: [],
+        particles: [],
+        dustParticles,
+        buildings,
+        palmTrees,
+        bombs: [],
+        burningBuildings: [],
+        bombCount: 3,
+        bombCooldown: 0,
+        bombId: 0,
+        shakeTimer: 0,
+        camera: { x: MAP_W / 2 - 400, y: MAP_H / 2 - 300 },
+        bulletId: 0,
+        particleId: 0,
+        frameCount: 0,
+        lastTime: performance.now(),
+        bossesDefeated: 0,
+        currentLevel: 1,
+        levelTransition: false,
+        levelTransitionTimer: 0,
+        allBossesDefeatedOnce: false,
+        npcs,
+        keysDown: new Set(),
+        joystick: {
+          active: false,
+          baseX: 80,
+          baseY: 0,
+          dx: 0,
+          dy: 0,
+          touchId: null,
+        },
+        muted,
+        audioCtx,
+      };
+
+      return stateRef.current;
     },
-    [],
+    [muted],
   );
 
-  const drawCharSelectScreen = useCallback(
-    (ctx: CanvasRenderingContext2D, selIdx: number) => {
-      const grad = ctx.createRadialGradient(
-        CW / 2,
-        CH / 2,
-        0,
-        CW / 2,
-        CH / 2,
-        600,
-      );
-      grad.addColorStop(0, "#1a0f00");
-      grad.addColorStop(1, "#0B0C0E");
-      ctx.fillStyle = grad;
-      ctx.fillRect(0, 0, CW, CH);
-      ctx.fillStyle = "#C9A35A";
-      ctx.font = "bold 36px 'Cinzel', serif";
-      ctx.textAlign = "center";
-      ctx.fillText("CHOOSE YOUR HERO", CW / 2, 60);
-      ctx.fillStyle = "rgba(255,255,255,0.5)";
-      ctx.font = "14px 'Cinzel', serif";
-      ctx.fillText(
-        "Humza Ali Mazari & Ajay Sanyal are hunting the 4 traitors",
-        CW / 2,
-        92,
-      );
-      ctx.fillStyle = "rgba(201,163,90,0.4)";
-      ctx.font = "13px 'Cinzel', serif";
-      ctx.fillText(
-        "\u2190 \u2192 Arrow Keys / Tap Arrows  |  ENTER / Tap SELECT to Confirm",
-        CW / 2,
-        118,
-      );
-
-      const cardW = 300;
-      const cardH = 280;
-      for (let i = 0; i < HEROES.length; i++) {
-        const ch = HEROES[i];
-        const cx = CW / 2 + (i === 0 ? -190 : 190);
-        const cy = CH / 2 + 20;
-        const isSelected = i === selIdx;
-        ctx.save();
-        if (isSelected) {
-          ctx.shadowColor = ch.color;
-          ctx.shadowBlur = 30;
-        }
-        ctx.fillStyle = isSelected
-          ? "rgba(201,163,90,0.2)"
-          : "rgba(20,12,5,0.8)";
-        ctx.strokeStyle = isSelected ? ch.color : "rgba(201,163,90,0.3)";
-        ctx.lineWidth = isSelected ? 3 : 1;
-        ctx.beginPath();
-        ctx.roundRect(cx - cardW / 2, cy - cardH / 2, cardW, cardH, 10);
-        ctx.fill();
-        ctx.stroke();
-        ctx.restore();
-        ctx.save();
-        const heroImgKeys = ["humza", "ajay"];
-        const heroPortrait = charImagesRef.current[heroImgKeys[i]];
-        if (heroPortrait?.complete && heroPortrait.naturalWidth > 0) {
-          if (isSelected) {
-            ctx.shadowColor = ch.color;
-            ctx.shadowBlur = 24;
-          }
-          ctx.drawImage(heroPortrait, cx - 45, cy - 110, 90, 110);
-        } else {
-          if (isSelected) {
-            ctx.shadowColor = ch.color;
-            ctx.shadowBlur = 24;
-          }
-          ctx.fillStyle = ch.color;
-          ctx.beginPath();
-          ctx.arc(cx, cy - 60, 40, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.strokeStyle = isSelected ? "#FFD700" : "rgba(255,255,255,0.3)";
-          ctx.lineWidth = isSelected ? 3 : 1.5;
-          ctx.stroke();
-        }
-        ctx.restore();
-        ctx.fillStyle = isSelected ? "#FFD700" : "#C9A35A";
-        ctx.font = `bold ${isSelected ? 18 : 16}px 'Cinzel', serif`;
-        ctx.textAlign = "center";
-        ctx.fillText(ch.name, cx, cy + 10);
-        ctx.fillStyle = "rgba(255,255,255,0.7)";
-        ctx.font = "13px 'Cinzel', serif";
-        ctx.fillText(ch.role, cx, cy + 32);
-        ctx.fillStyle = "rgba(201,163,90,0.6)";
-        ctx.font = "11px sans-serif";
-        const roleDesc =
-          i === 0
-            ? "Fearless rebel fighter saving the country"
-            : "Undercover spy agent, master of stealth";
-        ctx.fillText(roleDesc, cx, cy + 56);
-        if (isSelected) {
-          ctx.fillStyle = ch.color;
-          ctx.font = "bold 13px 'Cinzel', serif";
-          ctx.fillText("▶ SELECTED ◀", cx, cy + 80);
-        }
-      }
-    },
-    [],
-  );
-
-  const drawPauseScreen = useCallback((ctx: CanvasRenderingContext2D) => {
-    ctx.fillStyle = "rgba(0,0,0,0.6)";
-    ctx.fillRect(0, 0, CW, CH);
-    ctx.fillStyle = "#C9A35A";
-    ctx.font = "bold 48px 'Cinzel', serif";
-    ctx.textAlign = "center";
-    ctx.fillText("PAUSED", CW / 2, CH / 2);
-    ctx.font = "16px 'Cinzel', serif";
-    ctx.fillText("Press ESC to resume", CW / 2, CH / 2 + 40);
-  }, []);
-
-  const drawGameOverScreen = useCallback((ctx: CanvasRenderingContext2D) => {
-    const grad = ctx.createRadialGradient(
-      CW / 2,
-      CH / 2,
-      0,
-      CW / 2,
-      CH / 2,
-      500,
-    );
-    grad.addColorStop(0, "#3a0000");
-    grad.addColorStop(1, "#0B0C0E");
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, CW, CH);
-    ctx.save();
-    ctx.shadowColor = "#FF2020";
-    ctx.shadowBlur = 40;
-    ctx.fillStyle = "#FF4444";
-    ctx.font = "bold 56px 'Cinzel', serif";
-    ctx.textAlign = "center";
-    ctx.fillText("MISSION FAILED", CW / 2, CH / 2 - 60);
-    ctx.restore();
-    ctx.fillStyle = "#888";
-    ctx.font = "22px 'Cinzel', serif";
-    ctx.fillText("The traitors prevailed...", CW / 2, CH / 2 - 10);
-    ctx.fillStyle = "#C9A35A";
-    ctx.font = "20px 'Cinzel', serif";
-    ctx.fillText(`FINAL SCORE: ${gsRef.current.score}`, CW / 2, CH / 2 + 30);
-    ctx.fillStyle = "#fff";
-    ctx.font = "16px 'Cinzel', serif";
-    ctx.fillText(`KILLS: ${gsRef.current.kills}`, CW / 2, CH / 2 + 60);
-  }, []);
-
-  const drawVictoryScreen = useCallback((ctx: CanvasRenderingContext2D) => {
-    const grad = ctx.createRadialGradient(
-      CW / 2,
-      CH / 2,
-      0,
-      CW / 2,
-      CH / 2,
-      500,
-    );
-    grad.addColorStop(0, "#1a1400");
-    grad.addColorStop(1, "#0B0C0E");
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, CW, CH);
-    ctx.save();
-    ctx.shadowColor = "#C9A35A";
-    ctx.shadowBlur = 40;
-    ctx.fillStyle = "#C9A35A";
-    ctx.font = "bold 50px 'Cinzel', serif";
-    ctx.textAlign = "center";
-    ctx.fillText("COUNTRY SAVED!", CW / 2, CH / 2 - 70);
-    ctx.restore();
-    ctx.fillStyle = "#FFD700";
-    ctx.font = "22px 'Cinzel', serif";
-    ctx.fillText("ALL TRAITORS ELIMINATED!", CW / 2, CH / 2 - 20);
-    ctx.fillStyle = "rgba(255,255,255,0.8)";
-    ctx.font = "16px 'Cinzel', serif";
-    ctx.fillText(
-      "Humza Ali Mazari & Ajay Sanyal have saved the nation.",
-      CW / 2,
-      CH / 2 + 16,
-    );
-    ctx.fillStyle = "#C9A35A";
-    ctx.font = "20px 'Cinzel', serif";
-    ctx.fillText(`FINAL SCORE: ${gsRef.current.score}`, CW / 2, CH / 2 + 52);
-    ctx.fillStyle = "#fff";
-    ctx.font = "16px 'Cinzel', serif";
-    ctx.fillText(`KILLS: ${gsRef.current.kills}`, CW / 2, CH / 2 + 80);
-  }, []);
-
-  // ── Game update ────────────────────────────────────────────────────────
   const updateGame = useCallback(
-    (now: number) => {
-      const gs = gsRef.current;
-      const p = playerRef.current;
-      if (!p.alive) return { playerDead: true, victory: false };
+    (state: GameState, dt: number, canvas: HTMLCanvasElement) => {
+      const vw = canvas.width;
+      const vh = canvas.height;
+      const p = state.player;
+      const _hero = HEROES[selectedHeroRef.current];
 
-      // Movement — keyboard + joystick
-      let dx = 0;
-      let dy = 0;
-      if (gs.keys.has("KeyW") || gs.keys.has("ArrowUp")) dy -= 1;
-      if (gs.keys.has("KeyS") || gs.keys.has("ArrowDown")) dy += 1;
-      if (gs.keys.has("KeyA") || gs.keys.has("ArrowLeft")) dx -= 1;
-      if (gs.keys.has("KeyD") || gs.keys.has("ArrowRight")) dx += 1;
+      if (state.muted !== muted) state.muted = muted;
 
-      // Joystick input
-      if (joystickActive.current) {
-        dx += joystickDx.current;
-        dy += joystickDy.current;
+      // ── Player input ──
+      let mvx = 0;
+      let mvy = 0;
+      if (
+        state.keysDown.has("ArrowLeft") ||
+        state.keysDown.has("a") ||
+        state.keysDown.has("A")
+      )
+        mvx -= 1;
+      if (
+        state.keysDown.has("ArrowRight") ||
+        state.keysDown.has("d") ||
+        state.keysDown.has("D")
+      )
+        mvx += 1;
+      if (
+        state.keysDown.has("ArrowUp") ||
+        state.keysDown.has("w") ||
+        state.keysDown.has("W")
+      )
+        mvy -= 1;
+      if (
+        state.keysDown.has("ArrowDown") ||
+        state.keysDown.has("s") ||
+        state.keysDown.has("S")
+      )
+        mvy += 1;
+
+      if (state.joystick.active) {
+        mvx = state.joystick.dx / 45;
+        mvy = state.joystick.dy / 45;
       }
 
-      const magnitude = Math.hypot(dx, dy);
-      if (magnitude > 1) {
-        dx /= magnitude;
-        dy /= magnitude;
-      } else if (magnitude > 0.01) {
-        dx /= magnitude;
-        dy /= magnitude;
+      const len = Math.sqrt(mvx * mvx + mvy * mvy);
+      if (len > 1) {
+        mvx /= len;
+        mvy /= len;
       }
 
-      if (magnitude > 0.01) {
-        const nx = p.x + dx * PLAYER_SPEED;
-        const ny = p.y + dy * PLAYER_SPEED;
-        const resolved = resolveCollision(nx, ny, 16);
-        p.x = resolved.x;
-        p.y = resolved.y;
-        // On mobile: aim in direction of movement
-        if (joystickActive.current) {
-          p.angle = Math.atan2(dy, dx);
-        }
+      p.vx = mvx * PLAYER_SPEED;
+      p.vy = mvy * PLAYER_SPEED;
+      p.isMoving = len > 0.1;
+
+      if (mvx > 0.1) p.facing = 1;
+      else if (mvx < -0.1) p.facing = -1;
+
+      // Move player with collision
+      const newPx = p.x + p.vx;
+      const newPy = p.y + p.vy;
+      let blockedX = false;
+      let blockedY = false;
+      for (const b of state.buildings) {
+        if (circleRect(newPx, p.y, 14, b.x, b.y, b.w, b.h)) blockedX = true;
+        if (circleRect(p.x, newPy, 14, b.x, b.y, b.w, b.h)) blockedY = true;
+      }
+      if (!blockedX) p.x = Math.max(20, Math.min(MAP_W - 20, newPx));
+      if (!blockedY) p.y = Math.max(20, Math.min(MAP_H - 20, newPy));
+
+      // Update NPC hint visibility
+      for (const npc of state.npcs) {
+        const d = dist(p.x, p.y, npc.x, npc.y);
+        npc.hintVisible = d < 150;
       }
 
-      // Desktop: aim toward mouse
-      if (!joystickActive.current) {
-        const wx = gs.mouseX + gs.camX;
-        const wy = gs.mouseY + gs.camY;
-        p.angle = Math.atan2(wy - p.y, wx - p.x);
+      // Animation
+      p.animTimer += dt;
+      if (p.isMoving && p.animTimer > 50) {
+        p.animFrame++;
+        p.animTimer = 0;
       }
 
-      // Weapon switch
-      if (gs.keys.has("Digit1")) p.weapon = 0;
-      if (gs.keys.has("Digit2")) p.weapon = 1;
-      if (gs.keys.has("Digit3")) p.weapon = 2;
-
-      // Zone shrink
-      if (now - gs.zoneLastShrink > ZONE_SHRINK_INTERVAL) {
-        gs.zoneLastShrink = now;
-        gs.zoneRadius = Math.max(200, gs.zoneRadius - 200);
-      }
-      const dFromCenter = dist(p.x, p.y, WCX, WCY);
-      if (dFromCenter > gs.zoneRadius && now - gs.lastZoneDamage > 1000) {
-        p.hp -= 2;
-        gs.lastZoneDamage = now;
-      }
-
-      // Survive score
-      if (now - gs.lastSurviveCheck > 60000) {
-        gs.score += 200;
-        gs.lastSurviveCheck = now;
-      }
-
-      // Loot pickup
-      if (gs.keys.has("KeyR")) {
-        for (const l of lootRef.current) {
-          if (!l.alive) continue;
-          if (dist(p.x, p.y, l.x, l.y) < 50) {
-            l.alive = false;
-            if (l.type === "health") p.hp = Math.min(p.maxHp, p.hp + 30);
-            else {
-              const wMap: Record<string, number> = {
-                sword: 0,
-                bow: 1,
-                spear: 2,
-              };
-              p.weapon = wMap[l.type] ?? p.weapon;
-            }
-            gs.score += 10;
+      // ── Player shoot ──
+      p.shootTimer -= dt;
+      const wantsShoot =
+        state.keysDown.has(" ") ||
+        state.keysDown.has("Enter") ||
+        mobileFireRef.current;
+      if (wantsShoot && p.shootTimer <= 0) {
+        p.shootTimer = PLAYER_SHOOT_COOLDOWN;
+        let nearestEnemy: Enemy | null = null;
+        let nearestDist = 800;
+        for (const e of state.enemies) {
+          if (!e.alive) continue;
+          const d = dist(p.x, p.y, e.x, e.y);
+          if (d < nearestDist) {
+            nearestDist = d;
+            nearestEnemy = e;
           }
         }
+        let bvx: number;
+        let bvy: number;
+        if (nearestEnemy) {
+          const n = normalize(nearestEnemy.x - p.x, nearestEnemy.y - p.y);
+          bvx = n.x * BULLET_SPEED;
+          bvy = n.y * BULLET_SPEED;
+          if (nearestEnemy.x > p.x) p.facing = 1;
+          else p.facing = -1;
+        } else {
+          bvx = p.facing * BULLET_SPEED;
+          bvy = 0;
+        }
+        state.bullets.push({
+          id: state.bulletId++,
+          x: p.x,
+          y: p.y,
+          vx: bvx,
+          vy: bvy,
+          dist: 0,
+          fromPlayer: true,
+          alive: true,
+        });
+        playSound(state.audioCtx, state.muted, "shoot");
       }
 
-      // NPC interaction
-      if (gs.keys.has("KeyE")) {
-        if (gs.dialogue) {
-          gs.dialogue = null;
+      // ── Bomb throw ──
+      state.bombCooldown = Math.max(0, state.bombCooldown - dt);
+      // Replenish bombs
+      if (
+        state.frameCount % BOMB_REPLENISH_FRAMES === 0 &&
+        state.frameCount > 0
+      ) {
+        state.bombCount = Math.min(5, state.bombCount + 1);
+      }
+      const wantsBomb =
+        state.keysDown.has("b") ||
+        state.keysDown.has("B") ||
+        mobileBombRef.current;
+      if (wantsBomb && state.bombCount > 0 && state.bombCooldown <= 0) {
+        state.bombCooldown = 600;
+        state.bombCount--;
+        mobileBombRef.current = false;
+        // Aim toward nearest enemy
+        let nearestEnemy: Enemy | null = null;
+        let nearestDist2 = 1200;
+        for (const e of state.enemies) {
+          if (!e.alive) continue;
+          const d = dist(p.x, p.y, e.x, e.y);
+          if (d < nearestDist2) {
+            nearestDist2 = d;
+            nearestEnemy = e;
+          }
+        }
+        let tvx: number;
+        let tvy: number;
+        if (nearestEnemy) {
+          const n = normalize(nearestEnemy.x - p.x, nearestEnemy.y - p.y);
+          tvx = n.x * 5;
+          tvy = n.y * 5;
         } else {
-          for (const npc of npcsRef.current) {
-            if (dist(p.x, p.y, npc.x, npc.y) < 70) {
-              gs.dialogue = { name: npc.name, text: npc.dialogue };
-              if (
-                audioCtxRef.current &&
-                masterGainRef.current &&
-                !isMutedRef.current
-              )
-                playNPCInteraction(audioCtxRef.current, masterGainRef.current);
+          tvx = p.facing * 5;
+          tvy = 0;
+        }
+        state.bombs.push({
+          id: state.bombId++,
+          x: p.x,
+          y: p.y,
+          vx: tvx,
+          vy: tvy,
+          alive: true,
+          landed: false,
+          fuseTimer: BOMB_FUSE_TIME,
+        });
+        playSound(state.audioCtx, state.muted, "bombthrow");
+      }
+
+      // ── Update bombs ──
+      for (const bomb of state.bombs) {
+        if (!bomb.alive) continue;
+        if (!bomb.landed) {
+          bomb.x += bomb.vx;
+          bomb.y += bomb.vy;
+          // Check if it hits a building or goes out of range from origin
+          let hitBuilding = false;
+          for (const b of state.buildings) {
+            if (circleRect(bomb.x, bomb.y, 8, b.x, b.y, b.w, b.h)) {
+              hitBuilding = true;
               break;
             }
           }
-        }
-      }
-
-      // Enemy AI
-      for (const e of enemiesRef.current) {
-        if (!e.alive) {
-          e.deathAlpha = Math.max(0, e.deathAlpha - 0.03);
-          continue;
-        }
-        if (e.flashTimer > 0) e.flashTimer--;
-        const dToPlayer = dist(e.x, e.y, p.x, p.y);
-        const chaseRange = e.type === "soldier" ? 250 : 500;
-        const attackRange = e.radius + 20;
-        if (dToPlayer < chaseRange) {
-          const ang = Math.atan2(p.y - e.y, p.x - e.x);
-          const ne = resolveCollision(
-            e.x + Math.cos(ang) * e.speed,
-            e.y + Math.sin(ang) * e.speed,
-            e.radius,
-          );
-          e.x = ne.x;
-          e.y = ne.y;
           if (
-            dToPlayer < attackRange &&
-            now - e.lastAttack > (e.type === "soldier" ? 1000 : 1400)
+            hitBuilding ||
+            bomb.x < 0 ||
+            bomb.x > MAP_W ||
+            bomb.y < 0 ||
+            bomb.y > MAP_H
           ) {
-            p.hp -= e.damage;
-            e.lastAttack = now;
-            if (
-              audioCtxRef.current &&
-              masterGainRef.current &&
-              !isMutedRef.current
-            )
-              playHit(audioCtxRef.current, masterGainRef.current);
+            bomb.landed = true;
           }
-          // Boss ranged attack
-          if (
-            e.type !== "soldier" &&
-            dToPlayer < 400 &&
-            now - e.lastProjectile > 2200
-          ) {
-            const ang2 = Math.atan2(p.y - e.y, p.x - e.x);
-            fireProjectile(false, e.x, e.y, ang2, "enemy", e.damage * 0.8, 6);
-            e.lastProjectile = now;
-          }
+          // Stop after travel distance
+          const travelDist = dist(bomb.x, bomb.y, p.x, p.y);
+          if (travelDist > 350) bomb.landed = true;
         } else {
-          // Patrol
-          const dpx = e.waypointX - e.x;
-          const dpy = e.waypointY - e.y;
-          const dWay = Math.hypot(dpx, dpy);
-          if (dWay < 10) {
-            e.waypointX = Math.max(
-              100,
-              Math.min(WW - 100, e.x + (Math.random() - 0.5) * 300),
-            );
-            e.waypointY = Math.max(
-              100,
-              Math.min(WH - 100, e.y + (Math.random() - 0.5) * 300),
-            );
-          } else {
-            const ne = resolveCollision(
-              e.x + (dpx / dWay) * e.speed,
-              e.y + (dpy / dWay) * e.speed,
-              e.radius,
-            );
-            e.x = ne.x;
-            e.y = ne.y;
+          bomb.fuseTimer -= dt;
+          // Beep near end
+          if (
+            bomb.fuseTimer < 600 &&
+            bomb.fuseTimer > 0 &&
+            state.frameCount % 12 === 0
+          ) {
+            playSound(state.audioCtx, state.muted, "beep");
+          }
+          if (bomb.fuseTimer <= 0) {
+            // EXPLODE
+            bomb.alive = false;
+            playSound(state.audioCtx, state.muted, "explosion");
+            state.shakeTimer = 350;
+
+            // Explosion particles
+            for (let i = 0; i < 50; i++) {
+              const angle = Math.random() * Math.PI * 2;
+              const speed = 3 + Math.random() * 8;
+              state.particles.push({
+                id: state.particleId++,
+                x: bomb.x,
+                y: bomb.y,
+                vx: Math.cos(angle) * speed,
+                vy: Math.sin(angle) * speed,
+                life: 600 + Math.random() * 400,
+                maxLife: 1000,
+                color: ["#FF6D00", "#FFD600", "#FF5252", "#FFFF00", "#FF8C00"][
+                  Math.floor(Math.random() * 5)
+                ],
+                size: 5 + Math.random() * 8,
+              });
+            }
+            // Smoke
+            for (let i = 0; i < 12; i++) {
+              const angle = Math.random() * Math.PI * 2;
+              state.particles.push({
+                id: state.particleId++,
+                x: bomb.x + (Math.random() - 0.5) * 30,
+                y: bomb.y + (Math.random() - 0.5) * 30,
+                vx: Math.cos(angle) * 1.5,
+                vy: Math.sin(angle) * 1.5 - 1,
+                life: 1200,
+                maxLife: 1200,
+                color: "#555",
+                size: 10 + Math.random() * 12,
+              });
+            }
+
+            // Damage enemies in radius
+            for (const e of state.enemies) {
+              if (!e.alive) continue;
+              const d = dist(bomb.x, bomb.y, e.x, e.y);
+              if (d < BOMB_RADIUS) {
+                const dmg = e.isBoss ? 50 : 80;
+                e.hp -= dmg;
+                e.flashTimer = 300;
+                if (e.hp <= 0) {
+                  e.alive = false;
+                  if (e.isBoss) {
+                    state.bossesDefeated++;
+                    playSound(state.audioCtx, state.muted, "death");
+                  } else {
+                    playSound(state.audioCtx, state.muted, "death");
+                  }
+                }
+              }
+            }
+
+            // Damage player if too close
+            if (dist(bomb.x, bomb.y, p.x, p.y) < BOMB_RADIUS * 0.6) {
+              p.hp = Math.max(0, p.hp - 20);
+              state.shakeTimer = 500;
+            }
+
+            // Set buildings on fire
+            for (let bi = 0; bi < state.buildings.length; bi++) {
+              const b = state.buildings[bi];
+              const bCx = b.x + b.w / 2;
+              const bCy = b.y + b.h / 2;
+              if (dist(bomb.x, bomb.y, bCx, bCy) < BOMB_RADIUS + b.w * 0.5) {
+                const existing = state.burningBuildings.find(
+                  (bb) => bb.buildingIdx === bi,
+                );
+                if (!existing) {
+                  state.burningBuildings.push({
+                    buildingIdx: bi,
+                    fireTimer: 8000,
+                    maxFireTime: 8000,
+                  });
+                  // Kill enemies inside burning building
+                  for (const e of state.enemies) {
+                    if (!e.alive) continue;
+                    if (circleRect(e.x, e.y, 16, b.x, b.y, b.w, b.h)) {
+                      e.hp = 0;
+                      e.alive = false;
+                      if (e.isBoss) state.bossesDefeated++;
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+      state.bombs = state.bombs.filter((b) => b.alive || b.landed);
+
+      // ── Update burning buildings ──
+      for (const bb of state.burningBuildings) {
+        if (bb.fireTimer > 0) {
+          bb.fireTimer -= dt;
+          // Kill enemies that walk into burning buildings
+          const b = state.buildings[bb.buildingIdx];
+          if (b) {
+            for (const e of state.enemies) {
+              if (!e.alive) continue;
+              if (circleRect(e.x, e.y, 14, b.x, b.y, b.w, b.h)) {
+                e.hp = 0;
+                e.alive = false;
+                if (e.isBoss) state.bossesDefeated++;
+              }
+            }
           }
         }
       }
 
-      // Projectiles
-      for (const proj of projectilesRef.current) {
-        if (!proj.alive) continue;
-        proj.x += proj.vx;
-        proj.y += proj.vy;
-        proj.distTraveled += Math.hypot(proj.vx, proj.vy);
+      // ── Screen shake ──
+      state.shakeTimer = Math.max(0, state.shakeTimer - dt);
+
+      // ── Enemy AI ──
+      for (const e of state.enemies) {
+        if (!e.alive) continue;
+
+        e.flashTimer = Math.max(0, e.flashTimer - dt);
+        e.stateTimer += dt;
+        const d = dist(e.x, e.y, p.x, p.y);
+
+        if (d < FIGHT_DIST) {
+          if (e.state !== "fight") {
+            e.state = "fight";
+            if (e.isBoss && e.stateTimer > 2000) {
+              playSound(state.audioCtx, state.muted, "boss");
+              e.stateTimer = 0;
+            }
+          }
+        } else if (d < FLEE_DIST) {
+          e.state = "flee";
+        } else {
+          if (e.state !== "idle") e.stateTimer = 0;
+          e.state = "idle";
+        }
+
+        let targetX = e.x;
+        let targetY = e.y;
+
+        if (e.state === "idle") {
+          const pd = dist(e.x, e.y, e.patrolTarget.x, e.patrolTarget.y);
+          if (pd < 10) {
+            const r = seededRand(e.id + e.stateTimer);
+            e.patrolTarget = {
+              x: Math.max(50, Math.min(MAP_W - 50, e.x + (r() - 0.5) * 300)),
+              y: Math.max(50, Math.min(MAP_H - 50, e.y + (r() - 0.5) * 300)),
+            };
+          }
+          targetX = e.patrolTarget.x;
+          targetY = e.patrolTarget.y;
+        } else if (e.state === "flee") {
+          const away = normalize(e.x - p.x, e.y - p.y);
+          const rand2 = seededRand(e.id + Math.floor(state.frameCount / 30));
+          targetX = e.x + away.x * 200 + (rand2() - 0.5) * 60;
+          targetY = e.y + away.y * 200 + (rand2() - 0.5) * 60;
+        } else {
+          const perp = normalize(-(p.y - e.y), p.x - e.x);
+          targetX = p.x + perp.x * 80;
+          targetY = p.y + perp.y * 80;
+        }
+
+        const speed =
+          e.state === "flee"
+            ? ENEMY_FLEE_SPEED
+            : e.state === "fight"
+              ? ENEMY_FIGHT_SPEED
+              : ENEMY_PATROL_SPEED;
+
+        const toTarget = normalize(targetX - e.x, targetY - e.y);
+        const evx = toTarget.x * speed;
+        const evy = toTarget.y * speed;
+
+        const nex = e.x + evx;
+        const ney = e.y + evy;
+        let ebX = false;
+        let ebY = false;
+        for (const b of state.buildings) {
+          if (circleRect(nex, e.y, 12, b.x, b.y, b.w, b.h)) ebX = true;
+          if (circleRect(e.x, ney, 12, b.x, b.y, b.w, b.h)) ebY = true;
+        }
+        if (!ebX) e.x = Math.max(20, Math.min(MAP_W - 20, nex));
+        if (!ebY) e.y = Math.max(20, Math.min(MAP_H - 20, ney));
+        e.vx = ebX ? 0 : evx;
+        e.vy = ebY ? 0 : evy;
+
+        e.shootTimer -= dt;
+        if (e.state === "fight" && e.shootTimer <= 0) {
+          e.shootTimer = e.isBoss ? BOSS_SHOOT_INTERVAL : ENEMY_SHOOT_INTERVAL;
+          const n = normalize(p.x - e.x, p.y - e.y);
+          state.bullets.push({
+            id: state.bulletId++,
+            x: e.x,
+            y: e.y,
+            vx: n.x * (BULLET_SPEED * 0.75),
+            vy: n.y * (BULLET_SPEED * 0.75),
+            dist: 0,
+            fromPlayer: false,
+            alive: true,
+          });
+          playSound(state.audioCtx, state.muted, "shoot");
+        }
+      }
+
+      // ── Bullets ──
+      for (const b of state.bullets) {
+        if (!b.alive) continue;
+        b.x += b.vx;
+        b.y += b.vy;
+        b.dist += Math.sqrt(b.vx * b.vx + b.vy * b.vy);
+
         if (
-          proj.distTraveled > proj.maxDist ||
-          proj.x < 0 ||
-          proj.x > WW ||
-          proj.y < 0 ||
-          proj.y > WH
+          b.dist > BULLET_RANGE ||
+          b.x < 0 ||
+          b.x > MAP_W ||
+          b.y < 0 ||
+          b.y > MAP_H
         ) {
-          proj.alive = false;
+          b.alive = false;
           continue;
         }
-        for (const b of buildingsRef.current) {
-          if (
-            proj.x > b.x &&
-            proj.x < b.x + b.w &&
-            proj.y > b.y &&
-            proj.y < b.y + b.h
-          ) {
-            proj.alive = false;
+
+        for (const bld of state.buildings) {
+          if (circleRect(b.x, b.y, 3, bld.x, bld.y, bld.w, bld.h)) {
+            b.alive = false;
+            for (let i = 0; i < 3; i++) {
+              state.particles.push({
+                id: state.particleId++,
+                x: b.x,
+                y: b.y,
+                vx: (Math.random() - 0.5) * 3,
+                vy: (Math.random() - 0.5) * 3,
+                life: 300,
+                maxLife: 300,
+                color: "#C8B89A",
+                size: 3,
+              });
+            }
             break;
           }
         }
-        if (!proj.alive) continue;
-        if (proj.fromPlayer) {
-          for (const e of enemiesRef.current) {
+        if (!b.alive) continue;
+
+        if (b.fromPlayer) {
+          for (const e of state.enemies) {
             if (!e.alive) continue;
-            if (dist(proj.x, proj.y, e.x, e.y) < e.radius + 4) {
-              proj.alive = false;
-              e.hp -= proj.damage;
-              e.flashTimer = 6;
-              if (e.hp <= 0) {
-                e.alive = false;
-                e.deathAlpha = 1;
-                gs.kills++;
-                const isBoss = e.type !== "soldier";
-                gs.score += isBoss ? 500 : 100;
-                if (isBoss)
-                  gs.bossElimMsg = {
-                    text: `${e.name} ELIMINATED!`,
-                    until: Date.now() + 2500,
-                  };
-                if (
-                  audioCtxRef.current &&
-                  masterGainRef.current &&
-                  !isMutedRef.current
-                )
-                  playBossAlert(audioCtxRef.current, masterGainRef.current);
-                lootRef.current.push({
-                  id: gs.projCounter++,
+            if (dist(b.x, b.y, e.x, e.y) < (e.isBoss ? 20 : 14)) {
+              b.alive = false;
+              e.hp -= 20;
+              e.flashTimer = 150;
+              playSound(state.audioCtx, state.muted, "hit");
+              for (let i = 0; i < 6; i++) {
+                state.particles.push({
+                  id: state.particleId++,
                   x: e.x,
                   y: e.y,
-                  type: isBoss ? "health" : "health",
-                  alive: true,
+                  vx: (Math.random() - 0.5) * 5,
+                  vy: (Math.random() - 0.5) * 5,
+                  life: 400,
+                  maxLife: 400,
+                  color: "#FF5252",
+                  size: 4,
                 });
+              }
+              if (e.hp <= 0) {
+                e.alive = false;
+                if (e.isBoss) {
+                  state.bossesDefeated++;
+                  playSound(state.audioCtx, state.muted, "death");
+                  for (let i = 0; i < 20; i++) {
+                    state.particles.push({
+                      id: state.particleId++,
+                      x: e.x,
+                      y: e.y,
+                      vx: (Math.random() - 0.5) * 10,
+                      vy: (Math.random() - 0.5) * 10,
+                      life: 800,
+                      maxLife: 800,
+                      color: ["#FFD700", "#FF6D00", "#FF5252", "#76FF03"][
+                        Math.floor(Math.random() * 4)
+                      ],
+                      size: 6,
+                    });
+                  }
+                } else {
+                  playSound(state.audioCtx, state.muted, "death");
+                }
               }
               break;
             }
           }
         } else {
-          if (dist(proj.x, proj.y, p.x, p.y) < 20) {
-            proj.alive = false;
-            p.hp -= proj.damage;
-            if (
-              audioCtxRef.current &&
-              masterGainRef.current &&
-              !isMutedRef.current
-            )
-              playHit(audioCtxRef.current, masterGainRef.current);
+          if (dist(b.x, b.y, p.x, p.y) < 14) {
+            b.alive = false;
+            p.hp = Math.max(0, p.hp - 10);
+            playSound(state.audioCtx, state.muted, "playerhit");
+            for (let i = 0; i < 4; i++) {
+              state.particles.push({
+                id: state.particleId++,
+                x: p.x,
+                y: p.y,
+                vx: (Math.random() - 0.5) * 4,
+                vy: (Math.random() - 0.5) * 4,
+                life: 300,
+                maxLife: 300,
+                color: "#FF8A80",
+                size: 3,
+              });
+            }
           }
         }
       }
-      if (projectilesRef.current.length > 200)
-        projectilesRef.current = projectilesRef.current.filter(
-          (pr) => pr.alive,
-        );
 
-      if (p.hp <= 0) {
-        p.hp = 0;
-        p.alive = false;
+      state.bullets = state.bullets.filter((b) => b.alive);
+
+      // ── Particles ──
+      for (const pt of state.particles) {
+        pt.x += pt.vx;
+        pt.y += pt.vy;
+        pt.vx *= 0.92;
+        pt.vy *= 0.92;
+        pt.life -= dt;
+      }
+      state.particles = state.particles.filter((pt) => pt.life > 0);
+
+      // ── Dust ──
+      for (const dp of state.dustParticles) {
+        dp.x += dp.vx;
+        dp.y += dp.vy;
+        if (dp.x < 0) dp.x = MAP_W;
+        if (dp.x > MAP_W) dp.x = 0;
+        if (dp.y < 0) dp.y = MAP_H;
+        if (dp.y > MAP_H) dp.y = 0;
       }
 
-      // Victory = all 4 bosses dead
-      const allBossesDead = enemiesRef.current
-        .filter((e) => e.type !== "soldier")
-        .every((e) => !e.alive);
+      // ── Level transition check ──
+      if (!state.levelTransition) {
+        const aliveEnemies = state.enemies.filter((e) => e.alive);
+        if (aliveEnemies.length === 0) {
+          // All enemies in this wave defeated — advance level
+          state.levelTransition = true;
+          state.levelTransitionTimer = 2500;
+          state.currentLevel += 1;
+          playSound(state.audioCtx, state.muted, "boss");
+        }
+      } else {
+        state.levelTransitionTimer -= dt;
+        if (state.levelTransitionTimer <= 0) {
+          state.levelTransition = false;
+          // Spawn new wave
+          const cfg = getLevelConfig(state.currentLevel);
+          const rand2 = seededRand(state.currentLevel * 137 + 42);
+          const newEnemies: Enemy[] = [];
+          let eid2 = state.enemies.length;
+          // Regular grunts
+          for (let i = 0; i < cfg.gruntCount; i++) {
+            const angle = (i / cfg.gruntCount) * Math.PI * 2;
+            const r = 600 + rand2() * 400;
+            newEnemies.push({
+              id: eid2++,
+              x: Math.max(
+                50,
+                Math.min(MAP_W - 50, state.player.x + Math.cos(angle) * r),
+              ),
+              y: Math.max(
+                50,
+                Math.min(MAP_H - 50, state.player.y + Math.sin(angle) * r),
+              ),
+              vx: 0,
+              vy: 0,
+              hp: cfg.health,
+              maxHp: cfg.health,
+              state: "idle",
+              isBoss: false,
+              name: `Soldier L${state.currentLevel}-${i + 1}`,
+              zone: "any",
+              colorAccent: "#4CAF50",
+              uniform: "#388E3C",
+              shootTimer: cfg.shootInterval,
+              stateTimer: 0,
+              patrolTarget: { x: rand2() * MAP_W, y: rand2() * MAP_H },
+              alive: true,
+              flashTimer: 0,
+            });
+          }
+          // Add a boss if this is a boss level
+          if (cfg.bossLevel >= 0 && !state.allBossesDefeatedOnce) {
+            const bd = BOSS_DATA[cfg.bossLevel];
+            newEnemies.push({
+              id: eid2++,
+              x: bd.spawnX + (rand2() - 0.5) * 200,
+              y: bd.spawnY + (rand2() - 0.5) * 200,
+              vx: 0,
+              vy: 0,
+              hp: 200 + state.currentLevel * 20,
+              maxHp: 200 + state.currentLevel * 20,
+              state: "idle",
+              isBoss: true,
+              name: bd.name,
+              zone: bd.zone,
+              colorAccent: bd.colorAccent,
+              uniform: bd.uniform,
+              shootTimer: BOSS_SHOOT_INTERVAL,
+              stateTimer: 0,
+              patrolTarget: { x: bd.spawnX, y: bd.spawnY },
+              alive: true,
+              flashTimer: 0,
+            });
+          }
+          state.enemies = newEnemies;
+        }
+      }
 
-      return { playerDead: !p.alive, victory: allBossesDead };
+      // Track if all 4 bosses ever defeated
+      if (!state.allBossesDefeatedOnce && state.bossesDefeated >= 4) {
+        state.allBossesDefeatedOnce = true;
+      }
+
+      // ── Camera ──
+      const shakeX = state.shakeTimer > 0 ? (Math.random() - 0.5) * 8 : 0;
+      const shakeY = state.shakeTimer > 0 ? (Math.random() - 0.5) * 8 : 0;
+      const targetCamX = p.x - vw / 2 + shakeX;
+      const targetCamY = p.y - vh / 2 + shakeY;
+      state.camera.x += (targetCamX - state.camera.x) * 0.12;
+      state.camera.y += (targetCamY - state.camera.y) * 0.12;
+      state.camera.x = Math.max(0, Math.min(MAP_W - vw, state.camera.x));
+      state.camera.y = Math.max(0, Math.min(MAP_H - vh, state.camera.y));
+
+      state.frameCount++;
     },
-    [resolveCollision, fireProjectile],
+    [muted],
   );
 
-  // ── Main game loop ─────────────────────────────────────────────────────
+  const renderGame = useCallback(
+    (state: GameState, canvas: HTMLCanvasElement) => {
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      const vw = canvas.width;
+      const vh = canvas.height;
+      const camX = state.camera.x;
+      const camY = state.camera.y;
+      const _hero = HEROES[selectedHeroRef.current];
+
+      ctx.clearRect(0, 0, vw, vh);
+
+      // Map
+      drawMap(ctx, state, camX, camY, vw, vh);
+
+      // Dust particles
+      for (const dp of state.dustParticles) {
+        ctx.save();
+        ctx.globalAlpha = dp.alpha;
+        ctx.fillStyle = "#C8AA80";
+        ctx.beginPath();
+        ctx.arc(dp.x - camX, dp.y - camY, dp.size, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+
+      // Particles
+      for (const pt of state.particles) {
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, pt.life / pt.maxLife);
+        ctx.fillStyle = pt.color;
+        ctx.beginPath();
+        ctx.arc(pt.x - camX, pt.y - camY, pt.size, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+
+      // Bullets
+      for (const b of state.bullets) {
+        ctx.beginPath();
+        ctx.arc(b.x - camX, b.y - camY, b.fromPlayer ? 4 : 3, 0, Math.PI * 2);
+        ctx.fillStyle = b.fromPlayer ? "#FFD600" : "#FF1744";
+        ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(b.x - camX, b.y - camY);
+        ctx.lineTo(b.x - camX - b.vx * 3, b.y - camY - b.vy * 3);
+        ctx.strokeStyle = b.fromPlayer
+          ? "rgba(255,214,0,0.4)"
+          : "rgba(255,23,68,0.4)";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+
+      // Bombs
+      const now = Date.now();
+      for (const bomb of state.bombs) {
+        const bsx = bomb.x - camX;
+        const bsy = bomb.y - camY;
+        if (bsx < -20 || bsx > vw + 20 || bsy < -20 || bsy > vh + 20) continue;
+        ctx.save();
+        // Bomb body
+        ctx.fillStyle = "#222";
+        ctx.beginPath();
+        ctx.arc(bsx, bsy, 8, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "#555";
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        // Fuse
+        ctx.strokeStyle = "#8B4513";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(bsx, bsy - 8);
+        ctx.quadraticCurveTo(bsx + 6, bsy - 14, bsx + 4, bsy - 18);
+        ctx.stroke();
+        // Spark
+        if (bomb.landed) {
+          const sparkActive = Math.sin(now * 0.025) > 0;
+          if (sparkActive) {
+            ctx.fillStyle = "#FF8C00";
+            ctx.beginPath();
+            ctx.arc(
+              bsx + 4 + (Math.random() - 0.5) * 3,
+              bsy - 18 + (Math.random() - 0.5) * 3,
+              3,
+              0,
+              Math.PI * 2,
+            );
+            ctx.fill();
+            ctx.fillStyle = "#FFFF00";
+            ctx.beginPath();
+            ctx.arc(bsx + 4, bsy - 18, 1.5, 0, Math.PI * 2);
+            ctx.fill();
+          }
+          // Fuse timer ring
+          const fuseRatio = bomb.fuseTimer / BOMB_FUSE_TIME;
+          ctx.strokeStyle =
+            fuseRatio > 0.5
+              ? "#4CAF50"
+              : fuseRatio > 0.25
+                ? "#FF9800"
+                : "#FF1744";
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.arc(
+            bsx,
+            bsy,
+            12,
+            -Math.PI / 2,
+            -Math.PI / 2 + fuseRatio * Math.PI * 2,
+          );
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+
+      // ── Perspective Rendering: sort by depth (farthest first) ──
+      const sortedEnemies = [...state.enemies.filter((e) => e.alive)].sort(
+        (a, b) => {
+          const da = Math.hypot(a.x - state.player.x, a.y - state.player.y);
+          const db = Math.hypot(b.x - state.player.x, b.y - state.player.y);
+          return db - da;
+        },
+      );
+      for (const e of sortedEnemies) {
+        const proj = worldToAlleyScreen(
+          e.x,
+          e.y,
+          state.player.x,
+          state.player.y,
+          vw,
+          vh,
+        );
+        if (!proj.visible) continue;
+        ctx.save();
+        ctx.translate(proj.sx, proj.sy);
+        ctx.scale(proj.scale, proj.scale);
+        drawEnemy(ctx, e, state.player.x, state.player.y, 0, 0);
+        ctx.restore();
+      }
+
+      // NPCs in perspective
+      for (const npc of state.npcs) {
+        const proj = worldToAlleyScreen(
+          npc.x,
+          npc.y,
+          state.player.x,
+          state.player.y,
+          vw,
+          vh,
+        );
+        if (!proj.visible) continue;
+        ctx.save();
+        ctx.translate(proj.sx, proj.sy);
+        ctx.scale(proj.scale, proj.scale);
+        drawNPC(ctx, npc, 0, 0);
+        ctx.restore();
+      }
+
+      // ── Player Pickup Truck (fixed bottom-center) ──
+      const truckCX = vw / 2;
+      const truckCY = vh * 0.82;
+      ctx.save();
+      // Shadow
+      ctx.globalAlpha = 0.28;
+      ctx.fillStyle = "#000";
+      ctx.beginPath();
+      ctx.ellipse(truckCX, truckCY + 10, 82, 16, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      const tw = 134;
+      const th = 54;
+      const tx = truckCX - tw / 2;
+      const ty = truckCY - th;
+      // Chassis underside
+      ctx.fillStyle = "#4A1A08";
+      ctx.fillRect(tx - 10, ty + th * 0.62, tw + 20, th * 0.42);
+      // Truck bed
+      ctx.fillStyle = "#7A3020";
+      ctx.fillRect(tx + tw * 0.36, ty + 6, tw * 0.66, th * 0.68);
+      ctx.strokeStyle = "#A04838";
+      ctx.lineWidth = 3;
+      ctx.strokeRect(tx + tw * 0.36, ty + 6, tw * 0.66, th * 0.68);
+      ctx.beginPath();
+      ctx.moveTo(tx + tw * 0.36, ty + th * 0.44);
+      ctx.lineTo(tx + tw * 0.98, ty + th * 0.44);
+      ctx.stroke();
+      // Cab
+      const cabGrad = ctx.createLinearGradient(tx, ty, tx, ty + th);
+      cabGrad.addColorStop(0, "#903828");
+      cabGrad.addColorStop(1, "#6B2818");
+      ctx.fillStyle = cabGrad;
+      ctx.beginPath();
+      ctx.moveTo(tx + 2, ty + th);
+      ctx.lineTo(tx, ty + th * 0.6);
+      ctx.quadraticCurveTo(tx + tw * 0.05, ty + th * 0.04, tx + tw * 0.2, ty);
+      ctx.lineTo(tx + tw * 0.38, ty);
+      ctx.lineTo(tx + tw * 0.38, ty + th);
+      ctx.closePath();
+      ctx.fill();
+      // Cab window
+      ctx.fillStyle = "rgba(110,170,230,0.55)";
+      ctx.beginPath();
+      ctx.moveTo(tx + tw * 0.05, ty + th * 0.54);
+      ctx.quadraticCurveTo(
+        tx + tw * 0.08,
+        ty + th * 0.09,
+        tx + tw * 0.18,
+        ty + th * 0.05,
+      );
+      ctx.lineTo(tx + tw * 0.37, ty + th * 0.05);
+      ctx.lineTo(tx + tw * 0.37, ty + th * 0.54);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = "#4A2010";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      // Wheels
+      for (const wax of [tx + 20, tx + tw - 22]) {
+        ctx.fillStyle = "#181818";
+        ctx.beginPath();
+        ctx.arc(wax, ty + th + 5, 19, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#303030";
+        ctx.beginPath();
+        ctx.arc(wax, ty + th + 5, 10, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "#555";
+        ctx.lineWidth = 1.5;
+        for (let sp = 0; sp < 5; sp++) {
+          const ang = (sp / 5) * Math.PI * 2;
+          ctx.beginPath();
+          ctx.moveTo(wax + Math.cos(ang) * 4, ty + th + 5 + Math.sin(ang) * 4);
+          ctx.lineTo(
+            wax + Math.cos(ang) * 10,
+            ty + th + 5 + Math.sin(ang) * 10,
+          );
+          ctx.stroke();
+        }
+      }
+      // Front headlight
+      ctx.fillStyle = "rgba(255,240,150,0.9)";
+      ctx.beginPath();
+      ctx.arc(tx + 4, ty + th * 0.74, 5, 0, Math.PI * 2);
+      ctx.fill();
+      // Muzzle flash when firing
+      if (state.player.shootTimer > PLAYER_SHOOT_COOLDOWN * 0.55) {
+        const flashX = tx - 14;
+        const flashY = ty + th * 0.28;
+        const flashGrad = ctx.createRadialGradient(
+          flashX,
+          flashY,
+          2,
+          flashX,
+          flashY,
+          32,
+        );
+        flashGrad.addColorStop(0, "rgba(255,255,200,0.95)");
+        flashGrad.addColorStop(0.3, "rgba(255,165,0,0.82)");
+        flashGrad.addColorStop(1, "rgba(255,50,0,0)");
+        ctx.fillStyle = flashGrad;
+        ctx.beginPath();
+        ctx.arc(flashX, flashY, 30, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      // Hero standing in truck bed
+      drawCharacter(
+        ctx,
+        tx + tw * 0.66,
+        ty + 12,
+        _hero.bodyColor,
+        _hero.legColor,
+        _hero.accentColor,
+        state.player.facing,
+        state.player.isMoving,
+        state.player.animFrame,
+        0.72,
+        selectedHeroRef.current,
+      );
+      ctx.restore();
+
+      // HUD
+      drawHUD(ctx, state, _hero.name, _hero.bodyColor, vw, vh);
+
+      // Mobile controls
+      drawJoystick(ctx, state.joystick, vw, vh);
+      drawFireButton(ctx, vw, vh, state.bombCount);
+
+      // Mute button
+      ctx.save();
+      ctx.fillStyle = "rgba(0,0,0,0.5)";
+      ctx.beginPath();
+      ctx.arc(vw - 28, 28, 18, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.font = "16px sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillStyle = "#FFF";
+      ctx.fillText(state.muted ? "🔇" : "🔊", vw - 28, 28);
+      ctx.textBaseline = "alphabetic";
+      ctx.restore();
+
+      // Controls hint
+      ctx.save();
+      ctx.fillStyle = "rgba(0,0,0,0.5)";
+      ctx.roundRect(vw / 2 - 120, vh - 50, 240, 24, 6);
+      ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,0.7)";
+      ctx.font = "10px sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText("WASD: Move | SPACE: Fire | B: Throw Bomb", vw / 2, vh - 34);
+      ctx.restore();
+
+      // Level transition overlay
+      if (state.levelTransition) {
+        const elapsed = 2500 - state.levelTransitionTimer;
+        const progress = elapsed / 2500;
+        const alpha =
+          progress < 0.15
+            ? progress / 0.15
+            : progress > 0.75
+              ? (1 - progress) / 0.25
+              : 1;
+        ctx.save();
+        ctx.globalAlpha = Math.min(0.95, alpha * 0.95);
+        ctx.fillStyle = "#060200";
+        ctx.fillRect(0, 0, vw, vh);
+        ctx.globalAlpha = alpha;
+        // Glow border
+        ctx.strokeStyle = "#FF8C00";
+        ctx.lineWidth = 4;
+        ctx.strokeRect(10, 10, vw - 20, vh - 20);
+        // Dhurandhar title
+        ctx.font = "bold 26px sans-serif";
+        ctx.fillStyle = "#FF8C00";
+        ctx.textAlign = "center";
+        ctx.letterSpacing = "6px";
+        ctx.fillText("✦ DHURANDHAR ✦", vw / 2, vh / 2 - 70);
+        // Level text
+        ctx.font = `bold ${Math.min(90, vw / 6)}px sans-serif`;
+        ctx.fillStyle = "#FFD700";
+        ctx.shadowColor = "#FF6D00";
+        ctx.shadowBlur = 30;
+        ctx.fillText(`LEVEL ${state.currentLevel}`, vw / 2, vh / 2 + 25);
+        ctx.shadowBlur = 0;
+        // Subtitle
+        const levelSubtitles: Record<number, string> = {
+          1: "City Streets — Find the Enemy",
+          2: "The Hunt Begins",
+          3: "Border Tension Rising",
+          4: "Reinforcements Deployed",
+          5: "WAR BREAKS OUT",
+          6: "No Mercy — Fight On",
+          7: "TOTAL WARFARE",
+          8: "The Final Push",
+          9: "FINAL BATTLE",
+        };
+        const subtitle =
+          levelSubtitles[state.currentLevel] ||
+          `Wave ${state.currentLevel} — Eliminate All Threats`;
+        ctx.font = "bold 16px sans-serif";
+        ctx.fillStyle = "#FF6B6B";
+        ctx.fillText(subtitle, vw / 2, vh / 2 + 68);
+        // Boss warning
+        const bossCfg = getLevelConfig(state.currentLevel);
+        if (bossCfg.bossLevel >= 0 && !state.allBossesDefeatedOnce) {
+          ctx.font = "bold 18px sans-serif";
+          ctx.fillStyle = "#FF1744";
+          ctx.shadowColor = "#FF1744";
+          ctx.shadowBlur = 12;
+          ctx.fillText(
+            `!! BOSS INCOMING: ${BOSS_DATA[bossCfg.bossLevel].name} !!`,
+            vw / 2,
+            vh / 2 + 102,
+          );
+          ctx.shadowBlur = 0;
+        }
+        if (state.allBossesDefeatedOnce) {
+          ctx.font = "bold 14px sans-serif";
+          ctx.fillStyle = "#69F0AE";
+          ctx.fillText(
+            "ALL BOSSES DEFEATED — SURVIVE ENDLESS WAVES!",
+            vw / 2,
+            vh / 2 + 102,
+          );
+        }
+        ctx.restore();
+      }
+    },
+    [],
+  );
+
+  const gameLoop = useCallback(
+    (timestamp: number) => {
+      if (phaseRef.current !== "playing") return;
+      const canvas = canvasRef.current;
+      const state = stateRef.current;
+      if (!canvas || !state) return;
+
+      const dt = Math.min(50, timestamp - state.lastTime);
+      state.lastTime = timestamp;
+
+      updateGame(state, dt, canvas);
+      renderGame(state, canvas);
+
+      // No final win — game continues with endless waves after bosses defeated
+      if (state.player.hp <= 0) {
+        if (bgMusicStopRef.current) {
+          bgMusicStopRef.current();
+          bgMusicStopRef.current = null;
+        }
+        setGamePhase("gameover");
+        return;
+      }
+
+      animFrameRef.current = requestAnimationFrame(gameLoop);
+    },
+    [updateGame, renderGame],
+  );
+
+  const startGame = useCallback(() => {
+    const state = initGame(selectedHeroRef.current);
+    setGamePhase("playing");
+    phaseRef.current = "playing";
+    if (!muted && state.audioCtx) {
+      bgMusicStopRef.current = startBgMusic(state.audioCtx, muted);
+    }
+    animFrameRef.current = requestAnimationFrame(gameLoop);
+  }, [initGame, gameLoop, muted]);
+
+  // Resize canvas
   useEffect(() => {
+    const resize = () => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+      if (stateRef.current) {
+        stateRef.current.joystick.baseY = canvas.height - 100;
+      }
+    };
+    resize();
+    window.addEventListener("resize", resize);
+    return () => window.removeEventListener("resize", resize);
+  }, []);
+
+  // Keyboard
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (phaseRef.current !== "playing") return;
+      const state = stateRef.current;
+      if (!state) return;
+      state.keysDown.add(e.key);
+    };
+    const onKeyUp = (e: KeyboardEvent) => {
+      const state = stateRef.current;
+      if (!state) return;
+      state.keysDown.delete(e.key);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+    };
+  }, []);
+
+  // Touch events
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const onTouchStart = (e: TouchEvent) => {
+      e.preventDefault();
+      const state = stateRef.current;
+      if (!state) return;
+      const vw = canvas.width;
+      const vh = canvas.height;
+
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        const t = e.changedTouches[i];
+        // Mute button area
+        if (
+          Math.abs(t.clientX - (vw - 28)) < 24 &&
+          Math.abs(t.clientY - 28) < 24
+        ) {
+          setMuted((m) => {
+            const nm = !m;
+            if (state) state.muted = nm;
+            return nm;
+          });
+          continue;
+        }
+        // Fire button area
+        if (
+          Math.abs(t.clientX - (vw - 80)) < 55 &&
+          Math.abs(t.clientY - (vh - 110)) < 55
+        ) {
+          mobileFireRef.current = true;
+          continue;
+        }
+        // Bomb button area
+        if (
+          Math.abs(t.clientX - (vw - 155)) < 45 &&
+          Math.abs(t.clientY - (vh - 90)) < 45
+        ) {
+          mobileBombRef.current = true;
+          continue;
+        }
+        // Joystick (left side)
+        if (t.clientX < vw / 2 && !state.joystick.active) {
+          state.joystick.active = true;
+          state.joystick.baseX = t.clientX;
+          state.joystick.baseY = t.clientY;
+          state.joystick.dx = 0;
+          state.joystick.dy = 0;
+          state.joystick.touchId = t.identifier;
+        }
+      }
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      e.preventDefault();
+      const state = stateRef.current;
+      if (!state) return;
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        const t = e.changedTouches[i];
+        if (state.joystick.active && t.identifier === state.joystick.touchId) {
+          const dx = t.clientX - state.joystick.baseX;
+          const dy = t.clientY - state.joystick.baseY;
+          const l = Math.sqrt(dx * dx + dy * dy);
+          const maxR = 45;
+          const clamped = l > maxR ? maxR / l : 1;
+          state.joystick.dx = dx * clamped;
+          state.joystick.dy = dy * clamped;
+        }
+      }
+    };
+
+    const onTouchEnd = (e: TouchEvent) => {
+      e.preventDefault();
+      const state = stateRef.current;
+      if (!state) return;
+      const vw = canvas.width;
+      const vh = canvas.height;
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        const t = e.changedTouches[i];
+        if (state.joystick.active && t.identifier === state.joystick.touchId) {
+          state.joystick.active = false;
+          state.joystick.dx = 0;
+          state.joystick.dy = 0;
+          state.joystick.touchId = null;
+        }
+        if (
+          Math.abs(t.clientX - (vw - 80)) < 55 &&
+          Math.abs(t.clientY - (vh - 110)) < 55
+        ) {
+          mobileFireRef.current = false;
+        }
+        if (
+          Math.abs(t.clientX - (vw - 155)) < 45 &&
+          Math.abs(t.clientY - (vh - 90)) < 45
+        ) {
+          mobileBombRef.current = false;
+        }
+      }
+      if (e.touches.length === 0) {
+        mobileFireRef.current = false;
+        mobileBombRef.current = false;
+      }
+    };
+
+    canvas.addEventListener("touchstart", onTouchStart, { passive: false });
+    canvas.addEventListener("touchmove", onTouchMove, { passive: false });
+    canvas.addEventListener("touchend", onTouchEnd, { passive: false });
+    canvas.addEventListener("touchcancel", onTouchEnd, { passive: false });
+    return () => {
+      canvas.removeEventListener("touchstart", onTouchStart);
+      canvas.removeEventListener("touchmove", onTouchMove);
+      canvas.removeEventListener("touchend", onTouchEnd);
+      canvas.removeEventListener("touchcancel", onTouchEnd);
+    };
+  }, []);
+
+  // Canvas click (mute toggle on desktop)
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const onClick = (e: MouseEvent) => {
+      const vw = canvas.width;
+      if (
+        Math.abs(e.clientX - (vw - 28)) < 24 &&
+        Math.abs(e.clientY - 28) < 24
+      ) {
+        setMuted((m) => {
+          const nm = !m;
+          if (stateRef.current) stateRef.current.muted = nm;
+          return nm;
+        });
+      }
+    };
+    canvas.addEventListener("click", onClick);
+    return () => canvas.removeEventListener("click", onClick);
+  }, []);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      cancelAnimationFrame(animFrameRef.current);
+      if (bgMusicStopRef.current) bgMusicStopRef.current();
+    };
+  }, []);
+
+  // Render win/gameover overlays on canvas
+  useEffect(() => {
+    if (gamePhase !== "win" && gamePhase !== "gameover") return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    let running = true;
-    const loop = (now: number) => {
-      if (!running) return;
-      ctx.clearRect(0, 0, CW, CH);
-      const currentPhase = phaseRef.current;
-      if (currentPhase === "start") {
-        drawStartScreen(ctx, now);
-      } else if (currentPhase === "charSelect") {
-        drawCharSelectScreen(ctx, selectedCharIdxRef.current);
-      } else if (currentPhase === "playing") {
-        const result = updateGame(now);
-        drawScene(ctx, now);
-        if (result?.playerDead) {
-          phaseRef.current = "gameover";
-          setPhase("gameover");
-          setDisplayScore(gsRef.current.score);
-          setDisplayKills(gsRef.current.kills);
-          stopMusicRef.current?.();
-          if (audioCtxRef.current && masterGainRef.current)
-            setTimeout(() => {
-              if (
-                audioCtxRef.current &&
-                masterGainRef.current &&
-                !isMutedRef.current
-              )
-                playDeath(audioCtxRef.current, masterGainRef.current);
-            }, 200);
-        } else if (result?.victory) {
-          phaseRef.current = "victory";
-          setPhase("victory");
-          setDisplayScore(gsRef.current.score + 1000);
-          setDisplayKills(gsRef.current.kills);
-          gsRef.current.score += 1000;
-          stopMusicRef.current?.();
-          if (audioCtxRef.current && masterGainRef.current)
-            setTimeout(() => {
-              if (
-                audioCtxRef.current &&
-                masterGainRef.current &&
-                !isMutedRef.current
-              )
-                playVictory(audioCtxRef.current, masterGainRef.current);
-            }, 200);
+    const vw = canvas.width;
+    const vh = canvas.height;
+
+    const fireworkParticles: Particle[] = [];
+    let pid = 0;
+    if (gamePhase === "win") {
+      for (let i = 0; i < 60; i++) {
+        fireworkParticles.push({
+          id: pid++,
+          x: vw / 2 + (Math.random() - 0.5) * vw,
+          y: vh / 2 + (Math.random() - 0.5) * vh,
+          vx: (Math.random() - 0.5) * 8,
+          vy: (Math.random() - 0.5) * 8 - 2,
+          life: 1500 + Math.random() * 1000,
+          maxLife: 2500,
+          color: ["#FFD700", "#FF6D00", "#76FF03", "#FF5252", "#40C4FF"][
+            Math.floor(Math.random() * 5)
+          ],
+          size: 5 + Math.random() * 5,
+        });
+      }
+    }
+
+    let startTs = 0;
+    const animate = (ts: number) => {
+      if (!startTs) startTs = ts;
+      ctx.fillStyle = "rgba(0,0,0,0.75)";
+      ctx.fillRect(0, 0, vw, vh);
+
+      if (gamePhase === "win") {
+        for (const p of fireworkParticles) {
+          p.x += p.vx;
+          p.y += p.vy;
+          p.vy += 0.05;
+          p.life -= 16;
+          ctx.save();
+          ctx.globalAlpha = Math.max(0, p.life / p.maxLife);
+          ctx.fillStyle = p.color;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
         }
-      } else if (currentPhase === "paused") {
-        drawScene(ctx, now);
-        drawPauseScreen(ctx);
-      } else if (currentPhase === "gameover") {
-        drawGameOverScreen(ctx);
-      } else if (currentPhase === "victory") {
-        drawVictoryScreen(ctx);
+
+        ctx.save();
+        ctx.textAlign = "center";
+        ctx.fillStyle = "#FFD700";
+        ctx.font = "bold 48px sans-serif";
+        ctx.fillText("🏆 MISSION COMPLETE!", vw / 2, vh / 2 - 60);
+        ctx.font = "bold 28px sans-serif";
+        ctx.fillStyle = "#76FF03";
+        ctx.fillText("Country Saved! All Enemies Eliminated!", vw / 2, vh / 2);
+        ctx.font = "18px sans-serif";
+        ctx.fillStyle = "#FFF";
+        ctx.fillText(
+          "Dhurandhar has saved the nation! 🇮🇳",
+          vw / 2,
+          vh / 2 + 40,
+        );
+        ctx.restore();
+      } else {
+        ctx.save();
+        ctx.textAlign = "center";
+        ctx.fillStyle = "#FF1744";
+        ctx.font = "bold 56px sans-serif";
+        ctx.fillText("💀 MISSION FAILED", vw / 2, vh / 2 - 50);
+        ctx.font = "24px sans-serif";
+        ctx.fillStyle = "#EEE";
+        ctx.fillText(
+          "You have fallen. The country needs you!",
+          vw / 2,
+          vh / 2 + 10,
+        );
+        ctx.restore();
       }
-      rafRef.current = requestAnimationFrame(loop);
-    };
-    rafRef.current = requestAnimationFrame(loop);
-    return () => {
-      running = false;
-      cancelAnimationFrame(rafRef.current);
-    };
-  }, [
-    drawStartScreen,
-    drawCharSelectScreen,
-    drawScene,
-    drawPauseScreen,
-    drawGameOverScreen,
-    drawVictoryScreen,
-    updateGame,
-  ]);
 
-  // ── Keyboard/Mouse input ────────────────────────────────────────────────
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+      ctx.fillStyle = "rgba(0,0,0,0.7)";
+      ctx.fillRect(0, vh - 22, vw, 22);
+      ctx.font = "10px sans-serif";
+      ctx.fillStyle = "rgba(255,255,255,0.85)";
+      ctx.textAlign = "center";
+      ctx.fillText(
+        "© 2026 Dhurandhar | Priyanka Sharma | priyankadsharma11@gmail.com | All Rights Reserved",
+        vw / 2,
+        vh - 7,
+      );
 
-    const onKeyDown = (e: KeyboardEvent) => {
-      gsRef.current.keys.add(e.code);
-      if (e.code === "Enter" && phaseRef.current === "start") {
-        phaseRef.current = "charSelect";
-        setPhase("charSelect");
+      if (ts - startTs < 3000) {
+        requestAnimationFrame(animate);
       }
-      if (e.code === "Enter" && phaseRef.current === "charSelect") {
-        initGame();
-        playerRef.current.weapon = HEROES[selectedCharIdxRef.current].weapon;
-        startAudio();
-        phaseRef.current = "playing";
-        setPhase("playing");
-      }
-      if (e.code === "ArrowLeft" && phaseRef.current === "charSelect") {
-        const ni =
-          (selectedCharIdxRef.current - 1 + HEROES.length) % HEROES.length;
-        selectedCharIdxRef.current = ni;
-        setSelectedCharIdx(ni);
-      }
-      if (e.code === "ArrowRight" && phaseRef.current === "charSelect") {
-        const ni = (selectedCharIdxRef.current + 1) % HEROES.length;
-        selectedCharIdxRef.current = ni;
-        setSelectedCharIdx(ni);
-      }
-      if (e.code === "Escape") {
-        if (phaseRef.current === "playing") {
-          phaseRef.current = "paused";
-          setPhase("paused");
-        } else if (phaseRef.current === "paused") {
-          phaseRef.current = "playing";
-          setPhase("playing");
-        }
-      }
-      if (e.code === "Space") {
-        e.preventDefault();
-        if (phaseRef.current === "playing") playerAttack();
-      }
-      if (e.code === "KeyE")
-        setTimeout(() => gsRef.current.keys.delete("KeyE"), 200);
-      if (e.code === "KeyR")
-        setTimeout(() => gsRef.current.keys.delete("KeyR"), 200);
     };
-    const onKeyUp = (e: KeyboardEvent) => gsRef.current.keys.delete(e.code);
-    const onMouseMove = (e: MouseEvent) => {
-      const rect = canvas.getBoundingClientRect();
-      gsRef.current.mouseX = e.clientX - rect.left;
-      gsRef.current.mouseY = e.clientY - rect.top;
-    };
-    const onMouseDown = (e: MouseEvent) => {
-      if (e.button === 0 && phaseRef.current === "playing") playerAttack();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    window.addEventListener("keyup", onKeyUp);
-    canvas.addEventListener("mousemove", onMouseMove);
-    canvas.addEventListener("mousedown", onMouseDown);
-    return () => {
-      window.removeEventListener("keydown", onKeyDown);
-      window.removeEventListener("keyup", onKeyUp);
-      canvas.removeEventListener("mousemove", onMouseMove);
-      canvas.removeEventListener("mousedown", onMouseDown);
-    };
-  }, [initGame, playerAttack, startAudio]);
-
-  // Cleanup audio
-  useEffect(() => {
-    return () => {
-      stopMusicRef.current?.();
-      if (audioCtxRef.current && audioCtxRef.current.state !== "closed")
-        audioCtxRef.current.close();
-    };
-  }, []);
-
-  // ── Joystick handlers ─────────────────────────────────────────────────
-  const JOYSTICK_R = 60;
-  const KNOB_R = 25;
-
-  const handleJoyStart = useCallback((e: React.TouchEvent) => {
-    e.preventDefault();
-    const touch = e.changedTouches[0];
-    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    const ox = rect.left + rect.width / 2;
-    const oy = rect.top + rect.height / 2;
-    joystickOrigin.current = { x: ox, y: oy };
-    joystickActive.current = true;
-    const dx = Math.max(-1, Math.min(1, (touch.clientX - ox) / JOYSTICK_R));
-    const dy = Math.max(-1, Math.min(1, (touch.clientY - oy) / JOYSTICK_R));
-    joystickDx.current = dx;
-    joystickDy.current = dy;
-    const kx = Math.max(
-      -JOYSTICK_R + KNOB_R,
-      Math.min(JOYSTICK_R - KNOB_R, dx * (JOYSTICK_R - KNOB_R)),
-    );
-    const ky = Math.max(
-      -JOYSTICK_R + KNOB_R,
-      Math.min(JOYSTICK_R - KNOB_R, dy * (JOYSTICK_R - KNOB_R)),
-    );
-    joystickKnobPos.current = { x: kx, y: ky };
-    setJoystickKnob({ x: kx, y: ky });
-  }, []);
-
-  const handleJoyMove = useCallback((e: React.TouchEvent) => {
-    e.preventDefault();
-    if (!joystickActive.current) return;
-    const touch = e.changedTouches[0];
-    const ox = joystickOrigin.current.x;
-    const oy = joystickOrigin.current.y;
-    const rawDx = touch.clientX - ox;
-    const rawDy = touch.clientY - oy;
-    const mag = Math.hypot(rawDx, rawDy);
-    const clampedMag = Math.min(mag, JOYSTICK_R - KNOB_R);
-    const ndx = mag > 0 ? rawDx / mag : 0;
-    const ndy = mag > 0 ? rawDy / mag : 0;
-    joystickDx.current = ndx * (clampedMag / (JOYSTICK_R - KNOB_R));
-    joystickDy.current = ndy * (clampedMag / (JOYSTICK_R - KNOB_R));
-    joystickKnobPos.current = { x: ndx * clampedMag, y: ndy * clampedMag };
-    setJoystickKnob({ x: ndx * clampedMag, y: ndy * clampedMag });
-  }, []);
-
-  const handleJoyEnd = useCallback((e: React.TouchEvent) => {
-    e.preventDefault();
-    joystickActive.current = false;
-    joystickDx.current = 0;
-    joystickDy.current = 0;
-    joystickKnobPos.current = { x: 0, y: 0 };
-    setJoystickKnob({ x: 0, y: 0 });
-  }, []);
-
-  const handleSubmitScore = async () => {
-    if (!playerName.trim()) return;
-    await submitScore.mutateAsync({
-      name: playerName.trim(),
-      score: displayScore,
-    });
-    setSubmitted(true);
-  };
-
-  const handleRestart = () => {
-    setSubmitted(false);
-    setPlayerName("");
-    phaseRef.current = "start";
-    setPhase("start");
-  };
-
-  const startGameFromTouch = () => {
-    phaseRef.current = "charSelect";
-    setPhase("charSelect");
-  };
-
-  const confirmCharSelect = () => {
-    initGame();
-    playerRef.current.weapon = HEROES[selectedCharIdxRef.current].weapon;
-    startAudio();
-    phaseRef.current = "playing";
-    setPhase("playing");
-  };
+    requestAnimationFrame(animate);
+  }, [gamePhase]);
 
   return (
-    <div className="flex flex-col items-center gap-4 w-full">
-      {/* Canvas container */}
-      <div
-        className="relative canvas-gold-border rounded-sm overflow-hidden"
-        style={{ width: "100%", maxWidth: CW, aspectRatio: `${CW}/${CH}` }}
-        data-ocid="game.canvas_target"
-      >
-        <canvas
-          ref={canvasRef}
-          width={CW}
-          height={CH}
-          className="block cursor-crosshair w-full h-full"
-          style={{ imageRendering: "pixelated" }}
-        />
+    <div
+      className="fixed inset-0 bg-black overflow-hidden"
+      data-ocid="game.canvas_target"
+    >
+      <canvas
+        ref={canvasRef}
+        className="block w-full h-full"
+        style={{ touchAction: "none" }}
+      />
 
-        {/* Mute button overlay */}
-        {(phase === "playing" || phase === "paused") && (
-          <button
-            type="button"
-            data-ocid="game.toggle"
-            onClick={() => {
-              const newMuted = !isMuted;
-              setIsMuted(newMuted);
-              isMutedRef.current = newMuted;
-              if (masterGainRef.current && audioCtxRef.current) {
-                masterGainRef.current.gain.setValueAtTime(
-                  newMuted ? 0 : 1,
-                  audioCtxRef.current.currentTime,
-                );
-              }
-            }}
-            style={{
-              position: "absolute",
-              top: 10,
-              right: 10,
-              zIndex: 20,
-              background: "rgba(0,0,0,0.55)",
-              border: "1.5px solid rgba(255,220,80,0.5)",
-              borderRadius: "50%",
-              width: 38,
-              height: 38,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              cursor: "pointer",
-              fontSize: 18,
-              color: "#FFD600",
-            }}
-          >
-            {isMuted ? "🔇" : "🔊"}
-          </button>
-        )}
-
-        {/* START button overlay */}
-        {phase === "start" && (
-          <div className="absolute inset-0 flex items-end justify-center pb-10 pointer-events-none">
+      {/* MENU OVERLAY */}
+      {gamePhase === "menu" && (
+        <div
+          className="absolute inset-0 flex flex-col items-center justify-center"
+          style={{
+            background:
+              "linear-gradient(180deg, #0D1B2A 0%, #1B2838 40%, #2D1B00 100%)",
+          }}
+        >
+          <div className="text-center px-6 max-w-lg">
+            <div className="text-6xl mb-3">🎯</div>
+            <h1
+              className="text-5xl font-black tracking-wider mb-2"
+              style={{
+                color: "#FFD600",
+                textShadow: "0 0 30px rgba(255,214,0,0.6), 0 2px 0 #8B6000",
+                fontFamily: "serif",
+              }}
+            >
+              DHURANDHAR
+            </h1>
+            <p
+              className="text-sm mb-1"
+              style={{ color: "rgba(255,255,255,0.55)" }}
+            >
+              Hunt down the 4 bosses and save your country
+            </p>
+            <p
+              className="text-xs mb-6"
+              style={{ color: "rgba(255,150,50,0.7)" }}
+            >
+              💣 NEW: Throw bombs to destroy buildings with enemies inside!
+            </p>
             <button
               type="button"
-              className="pointer-events-auto font-cinzel text-xl font-bold px-10 py-4 rounded-lg"
+              onClick={() => setGamePhase("select")}
+              className="px-10 py-4 text-xl font-black rounded-xl tracking-widest"
               style={{
-                background: "linear-gradient(135deg, #d4a017, #f5c842)",
-                color: "#1a0a00",
-                border: "2px solid #8b6914",
-                boxShadow: "0 4px 24px rgba(212,160,23,0.7)",
-                letterSpacing: "0.1em",
+                background: "linear-gradient(135deg, #FFD600, #FF6D00)",
+                color: "#000",
+                boxShadow: "0 0 30px rgba(255,200,0,0.5)",
+                border: "2px solid #FFD600",
               }}
-              data-ocid="game.primary_button"
-              onClick={startGameFromTouch}
             >
               ▶ START GAME
             </button>
+            <div
+              className="mt-6 text-xs"
+              style={{ color: "rgba(255,255,255,0.4)" }}
+            >
+              WASD / Joystick to move · SPACE / FIRE to shoot · B / 💣 to bomb
+            </div>
           </div>
-        )}
+        </div>
+      )}
 
-        {/* CHAR SELECT overlay */}
-        {phase === "charSelect" && (
-          <>
-            <div className="absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none">
-              <button
-                type="button"
-                className="pointer-events-auto font-cinzel text-2xl font-bold px-4 py-6 rounded-lg"
-                style={{
-                  background: "rgba(0,0,0,0.6)",
-                  color: "#f5c842",
-                  border: "1px solid #8b6914",
-                }}
-                data-ocid="game.secondary_button"
-                onClick={() => {
-                  const ni =
-                    (selectedCharIdxRef.current - 1 + HEROES.length) %
-                    HEROES.length;
-                  selectedCharIdxRef.current = ni;
-                  setSelectedCharIdx(ni);
-                }}
-              >
-                ◀
-              </button>
-            </div>
-            <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none">
-              <button
-                type="button"
-                className="pointer-events-auto font-cinzel text-2xl font-bold px-4 py-6 rounded-lg"
-                style={{
-                  background: "rgba(0,0,0,0.6)",
-                  color: "#f5c842",
-                  border: "1px solid #8b6914",
-                }}
-                data-ocid="game.toggle"
-                onClick={() => {
-                  const ni = (selectedCharIdxRef.current + 1) % HEROES.length;
-                  selectedCharIdxRef.current = ni;
-                  setSelectedCharIdx(ni);
-                }}
-              >
-                ▶
-              </button>
-            </div>
-            <div className="absolute inset-x-0 bottom-8 flex justify-center pointer-events-none">
-              <button
-                type="button"
-                className="pointer-events-auto font-cinzel text-lg font-bold px-10 py-3 rounded-lg"
-                style={{
-                  background: "linear-gradient(135deg, #d4a017, #f5c842)",
-                  color: "#1a0a00",
-                  border: "2px solid #8b6914",
-                  boxShadow: "0 4px 20px rgba(212,160,23,0.6)",
-                  letterSpacing: "0.1em",
-                }}
-                data-ocid="game.confirm_button"
-                onClick={confirmCharSelect}
-              >
-                ✔ SELECT HERO
-              </button>
-            </div>
-          </>
-        )}
-
-        {/* MOBILE TOUCH CONTROLS — shown during gameplay on touch devices */}
-        {phase === "playing" && isMobile && (
-          <>
-            {/* Virtual Joystick — bottom-left */}
-            <div
-              className="absolute select-none"
-              style={{
-                left: 20,
-                bottom: 20,
-                width: JOYSTICK_R * 2,
-                height: JOYSTICK_R * 2,
-                borderRadius: "50%",
-                border: "3px solid rgba(255,255,255,0.45)",
-                background: "rgba(0,0,0,0.3)",
-                touchAction: "none",
-              }}
-              onTouchStart={handleJoyStart}
-              onTouchMove={handleJoyMove}
-              onTouchEnd={handleJoyEnd}
-              data-ocid="game.canvas_target"
-            >
-              {/* Knob */}
-              <div
-                style={{
-                  position: "absolute",
-                  left: JOYSTICK_R - KNOB_R + joystickKnob.x,
-                  top: JOYSTICK_R - KNOB_R + joystickKnob.y,
-                  width: KNOB_R * 2,
-                  height: KNOB_R * 2,
-                  borderRadius: "50%",
-                  background: "rgba(255,255,255,0.75)",
-                  border: "2px solid rgba(255,255,255,0.9)",
-                  pointerEvents: "none",
-                }}
-              />
-            </div>
-
-            {/* Right-side buttons */}
-            <div
-              className="absolute flex flex-col gap-3 items-center select-none"
-              style={{ right: 20, bottom: 20 }}
-            >
-              {/* WPN button */}
-              <button
-                type="button"
-                className="font-bold rounded-full flex items-center justify-center"
-                style={{
-                  width: 56,
-                  height: 56,
-                  fontSize: 13,
-                  background: "rgba(25, 80, 180, 0.85)",
-                  border: "2px solid rgba(100,160,255,0.8)",
-                  color: "#fff",
-                  touchAction: "none",
-                }}
-                data-ocid="game.toggle"
-                onTouchStart={(e) => {
-                  e.preventDefault();
-                  const p = playerRef.current;
-                  p.weapon = (p.weapon + 1) % WEAPONS.length;
-                }}
-              >
-                WPN
-              </button>
-
-              {/* ACT button */}
-              <button
-                type="button"
-                className="font-bold rounded-full flex items-center justify-center"
-                style={{
-                  width: 56,
-                  height: 56,
-                  fontSize: 13,
-                  background: "rgba(60, 60, 60, 0.85)",
-                  border: "2px solid rgba(200,200,200,0.6)",
-                  color: "#fff",
-                  touchAction: "none",
-                }}
-                data-ocid="game.secondary_button"
-                onTouchStart={(e) => {
-                  e.preventDefault();
-                  const gs = gsRef.current;
-                  const p = playerRef.current;
-                  if (gs.dialogue) {
-                    gs.dialogue = null;
-                  } else {
-                    // Try NPC interact
-                    for (const npc of npcsRef.current) {
-                      if (dist(p.x, p.y, npc.x, npc.y) < 80) {
-                        gs.dialogue = { name: npc.name, text: npc.dialogue };
-                        break;
-                      }
-                    }
-                    // Try loot pickup
-                    for (const l of lootRef.current) {
-                      if (!l.alive) continue;
-                      if (dist(p.x, p.y, l.x, l.y) < 55) {
-                        l.alive = false;
-                        if (l.type === "health")
-                          p.hp = Math.min(p.maxHp, p.hp + 30);
-                        else {
-                          const wMap: Record<string, number> = {
-                            sword: 0,
-                            bow: 1,
-                            spear: 2,
-                          };
-                          p.weapon = wMap[l.type] ?? p.weapon;
-                        }
-                        gs.score += 10;
-                        break;
-                      }
-                    }
-                  }
-                }}
-              >
-                ACT
-              </button>
-
-              {/* FIRE button */}
-              <button
-                type="button"
-                className="font-bold rounded-full flex items-center justify-center"
-                style={{
-                  width: 72,
-                  height: 72,
-                  fontSize: 16,
-                  background: "rgba(200, 30, 30, 0.9)",
-                  border: "3px solid rgba(255,80,80,0.9)",
-                  color: "#fff",
-                  touchAction: "none",
-                  boxShadow: "0 0 18px rgba(255,40,40,0.6)",
-                }}
-                data-ocid="game.primary_button"
-                onTouchStart={(e) => {
-                  e.preventDefault();
-                  if (phaseRef.current === "playing") playerAttack();
-                }}
-              >
-                FIRE
-              </button>
-            </div>
-          </>
-        )}
-      </div>
-
-      {/* Score/end panel */}
-      {(phase === "gameover" || phase === "victory") && (
+      {/* CHARACTER SELECT */}
+      {gamePhase === "select" && (
         <div
-          className="flex flex-col items-center gap-3 p-6 rounded-lg border border-border bg-card w-full max-w-md"
-          data-ocid="game.panel"
+          className="absolute inset-0 flex flex-col items-center justify-center"
+          style={{
+            background: "linear-gradient(180deg, #0D1B2A 0%, #1B3050 100%)",
+          }}
         >
-          <p className="font-cinzel text-lg text-gold">
-            {phase === "victory" ? "🏆 Country Saved!" : "💀 Mission Failed"}
-          </p>
-          <p className="font-cinzel text-sm text-muted-foreground">
-            Score: <span className="text-gold">{displayScore}</span> &nbsp;
-            Kills: <span className="text-white">{displayKills}</span>
-          </p>
-          {!submitted ? (
-            <div className="flex gap-2 w-full">
-              <Input
-                placeholder="Enter your warrior name"
-                value={playerName}
-                onChange={(e) => setPlayerName(e.target.value)}
-                className="bg-input border-border text-foreground font-cinzel"
-                data-ocid="game.input"
-                onKeyDown={(e) => e.key === "Enter" && handleSubmitScore()}
-              />
-              <Button
-                onClick={handleSubmitScore}
-                disabled={submitScore.isPending || !playerName.trim()}
-                className="bg-primary text-primary-foreground font-cinzel"
-                data-ocid="game.submit_button"
-              >
-                {submitScore.isPending ? "..." : "SUBMIT"}
-              </Button>
-            </div>
-          ) : (
-            <p
-              className="text-green-400 font-cinzel text-sm"
-              data-ocid="game.success_state"
-            >
-              Score submitted! Glory to your name!
-            </p>
-          )}
-          <Button
-            variant="outline"
-            onClick={handleRestart}
-            className="border-border font-cinzel w-full"
-            data-ocid="game.secondary_button"
+          <h2
+            className="text-3xl font-black mb-8 tracking-widest"
+            style={{ color: "#FFD600" }}
           >
-            RETURN TO TITLE
-          </Button>
+            CHOOSE YOUR HERO
+          </h2>
+          <div className="flex gap-8 flex-wrap justify-center px-4">
+            {HEROES.map((hero, idx) => (
+              <button
+                key={hero.name}
+                type="button"
+                onClick={() => {
+                  setSelectedHero(idx);
+                  selectedHeroRef.current = idx;
+                  startGame();
+                }}
+                className="flex flex-col items-center gap-3 p-6 rounded-2xl transition-all"
+                style={{
+                  background:
+                    selectedHero === idx
+                      ? "rgba(255,214,0,0.15)"
+                      : "rgba(255,255,255,0.06)",
+                  border:
+                    selectedHero === idx
+                      ? "2px solid #FFD600"
+                      : "2px solid rgba(255,255,255,0.12)",
+                  minWidth: 160,
+                }}
+              >
+                <div
+                  className="w-20 h-24 rounded-xl flex items-center justify-center"
+                  style={{ background: hero.bodyColor }}
+                >
+                  <span className="text-4xl">{idx === 0 ? "🧔" : "🕵️"}</span>
+                </div>
+                <div
+                  className="font-black text-sm tracking-wide"
+                  style={{ color: "#FFF" }}
+                >
+                  {hero.name}
+                </div>
+                <div
+                  className="text-xs"
+                  style={{ color: "rgba(255,255,255,0.5)" }}
+                >
+                  {hero.role}
+                </div>
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={() => setGamePhase("menu")}
+            className="mt-8 px-6 py-2 rounded-lg text-sm"
+            style={{
+              background: "rgba(255,255,255,0.1)",
+              color: "rgba(255,255,255,0.6)",
+              border: "1px solid rgba(255,255,255,0.2)",
+            }}
+          >
+            ← Back
+          </button>
+        </div>
+      )}
+
+      {/* GAME OVER OVERLAY */}
+      {(gamePhase === "win" || gamePhase === "gameover") && (
+        <div
+          className="absolute inset-0 flex flex-col items-center justify-center"
+          style={{ pointerEvents: "auto" }}
+        >
+          <button
+            type="button"
+            onClick={() => {
+              cancelAnimationFrame(animFrameRef.current);
+              setGamePhase("menu");
+            }}
+            className="mt-64 px-10 py-4 text-xl font-black rounded-xl"
+            style={{
+              background: "linear-gradient(135deg, #FFD600, #FF6D00)",
+              color: "#000",
+              boxShadow: "0 0 30px rgba(255,200,0,0.5)",
+            }}
+          >
+            PLAY AGAIN
+          </button>
         </div>
       )}
     </div>
