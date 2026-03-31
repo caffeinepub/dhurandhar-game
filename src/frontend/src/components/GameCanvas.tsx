@@ -626,234 +626,6 @@ function spawnParticles(
   }
 }
 
-// ─── Top-down character drawing ───────────────────────────────────────────────
-function drawHeroTopDown(
-  ctx: CanvasRenderingContext2D,
-  cx: number,
-  cy: number,
-  angle: number,
-  isHumza: boolean,
-  alpha: number,
-  radius: number,
-) {
-  ctx.save();
-  ctx.globalAlpha = alpha;
-  // Shadow
-  ctx.beginPath();
-  ctx.ellipse(cx + 4, cy + 4, radius + 2, radius - 4, 0, 0, Math.PI * 2);
-  ctx.fillStyle = "rgba(0,0,0,0.35)";
-  ctx.fill();
-  // Body
-  const bodyColor = isHumza ? "#1a3a8a" : "#1a6a1a";
-  const vestColor = isHumza ? "#2a5acc" : "#2a8a2a";
-  ctx.beginPath();
-  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-  ctx.fillStyle = bodyColor;
-  ctx.fill();
-  ctx.strokeStyle = vestColor;
-  ctx.lineWidth = 3;
-  ctx.stroke();
-  // Tactical vest stripes
-  ctx.strokeStyle = "rgba(255,255,255,0.25)";
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.arc(cx, cy, radius * 0.6, 0, Math.PI * 2);
-  ctx.stroke();
-  // Face
-  const faceDx = Math.cos(angle) * radius * 0.5;
-  const faceDy = Math.sin(angle) * radius * 0.5;
-  ctx.beginPath();
-  ctx.arc(cx + faceDx, cy + faceDy, radius * 0.45, 0, Math.PI * 2);
-  ctx.fillStyle = isHumza ? "#c8956a" : "#c09a70";
-  ctx.fill();
-  // Eyes
-  const eyeR = radius * 0.12;
-  const perp = angle + Math.PI / 2;
-  for (const s of [-1, 1]) {
-    const ex =
-      cx +
-      faceDx +
-      Math.cos(perp) * s * radius * 0.15 +
-      Math.cos(angle) * radius * 0.1;
-    const ey =
-      cy +
-      faceDy +
-      Math.sin(perp) * s * radius * 0.15 +
-      Math.sin(angle) * radius * 0.1;
-    ctx.beginPath();
-    ctx.arc(ex, ey, eyeR, 0, Math.PI * 2);
-    ctx.fillStyle = "#1a0a00";
-    ctx.fill();
-  }
-  // Hair
-  ctx.beginPath();
-  ctx.arc(
-    cx + faceDx - Math.cos(angle) * radius * 0.2,
-    cy + faceDy - Math.sin(angle) * radius * 0.2,
-    radius * 0.32,
-    0,
-    Math.PI * 2,
-  );
-  ctx.fillStyle = isHumza ? "#1a0a00" : "#0a0a0a";
-  ctx.fill();
-  // Gun
-  const gunLen = radius * 1.8;
-  ctx.beginPath();
-  ctx.moveTo(
-    cx + Math.cos(angle) * radius * 0.7,
-    cy + Math.sin(angle) * radius * 0.7,
-  );
-  ctx.lineTo(
-    cx + Math.cos(angle) * (radius + gunLen),
-    cy + Math.sin(angle) * (radius + gunLen),
-  );
-  ctx.strokeStyle = "#333";
-  ctx.lineWidth = 4;
-  ctx.stroke();
-  ctx.strokeStyle = "#555";
-  ctx.lineWidth = 2;
-  ctx.stroke();
-  ctx.restore();
-}
-
-function drawEnemyTopDown(
-  ctx: CanvasRenderingContext2D,
-  cx: number,
-  cy: number,
-  angle: number,
-  color: string,
-  accentColor: string,
-  isBoss: boolean,
-  radius: number,
-  hp: number,
-  maxHp: number,
-  name: string,
-  alertTimer: number,
-) {
-  ctx.save();
-  // Shadow
-  ctx.beginPath();
-  ctx.ellipse(cx + 3, cy + 3, radius + 2, radius - 3, 0, 0, Math.PI * 2);
-  ctx.fillStyle = "rgba(0,0,0,0.4)";
-  ctx.fill();
-  // Body
-  ctx.beginPath();
-  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-  ctx.fillStyle = color;
-  ctx.fill();
-  ctx.strokeStyle = accentColor;
-  ctx.lineWidth = isBoss ? 4 : 2.5;
-  ctx.stroke();
-  // Inner ring (clothing detail)
-  ctx.strokeStyle = "rgba(255,255,255,0.18)";
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  ctx.arc(cx, cy, radius * 0.6, 0, Math.PI * 2);
-  ctx.stroke();
-  // Face
-  const faceDx = Math.cos(angle) * radius * 0.45;
-  const faceDy = Math.sin(angle) * radius * 0.45;
-  ctx.beginPath();
-  ctx.arc(cx + faceDx, cy + faceDy, radius * 0.42, 0, Math.PI * 2);
-  ctx.fillStyle = "#b07850";
-  ctx.fill();
-  // Eyes
-  const eyeR = radius * 0.1;
-  const perp = angle + Math.PI / 2;
-  for (const side of [-1, 1]) {
-    const ex =
-      cx +
-      faceDx +
-      Math.cos(perp) * side * radius * 0.14 +
-      Math.cos(angle) * radius * 0.08;
-    const ey =
-      cy +
-      faceDy +
-      Math.sin(perp) * side * radius * 0.14 +
-      Math.sin(angle) * radius * 0.08;
-    ctx.beginPath();
-    ctx.arc(ex, ey, eyeR, 0, Math.PI * 2);
-    ctx.fillStyle = "#100800";
-    ctx.fill();
-  }
-  // Boss headgear
-  if (isBoss) {
-    ctx.beginPath();
-    ctx.arc(
-      cx + faceDx - Math.cos(angle) * radius * 0.15,
-      cy + faceDy - Math.sin(angle) * radius * 0.15,
-      radius * 0.42,
-      Math.PI * 1.1,
-      Math.PI * 1.9,
-    );
-    ctx.strokeStyle = accentColor;
-    ctx.lineWidth = 5;
-    ctx.stroke();
-    // Badge dot
-    ctx.beginPath();
-    ctx.arc(
-      cx + faceDx,
-      cy + faceDy - radius * 0.3,
-      radius * 0.1,
-      0,
-      Math.PI * 2,
-    );
-    ctx.fillStyle = "#ffd700";
-    ctx.fill();
-  } else {
-    // Keffiyeh hint
-    ctx.beginPath();
-    ctx.arc(
-      cx + faceDx,
-      cy + faceDy,
-      radius * 0.48,
-      Math.PI * 0.9,
-      Math.PI * 2.1,
-    );
-    ctx.strokeStyle = "#1a1a1a";
-    ctx.lineWidth = 4;
-    ctx.stroke();
-  }
-  // Gun
-  const gunLen = radius * 1.5;
-  ctx.beginPath();
-  ctx.moveTo(
-    cx + Math.cos(angle) * radius * 0.65,
-    cy + Math.sin(angle) * radius * 0.65,
-  );
-  ctx.lineTo(
-    cx + Math.cos(angle) * (radius + gunLen),
-    cy + Math.sin(angle) * (radius + gunLen),
-  );
-  ctx.strokeStyle = "#222";
-  ctx.lineWidth = 3.5;
-  ctx.stroke();
-  // HP bar (above character)
-  if (isBoss || hp < maxHp) {
-    const barW = radius * 2.5;
-    const barX = cx - barW / 2;
-    const barY = cy - radius - 14;
-    ctx.fillStyle = "rgba(0,0,0,0.7)";
-    ctx.fillRect(barX - 1, barY - 1, barW + 2, 9);
-    ctx.fillStyle = "#ff2200";
-    ctx.fillRect(barX, barY, barW * (hp / maxHp), 7);
-    if (isBoss) {
-      ctx.fillStyle = "white";
-      ctx.font = `bold ${Math.max(9, radius * 0.55)}px Arial`;
-      ctx.textAlign = "center";
-      ctx.fillText(name, cx, barY - 3);
-    }
-  }
-  // Alert
-  if (alertTimer > 0) {
-    ctx.fillStyle = "#ffee00";
-    ctx.font = `bold ${radius}px Arial`;
-    ctx.textAlign = "center";
-    ctx.fillText("!", cx, cy - radius - 18);
-  }
-  ctx.restore();
-}
-
 function drawNPCTopDown(
   ctx: CanvasRenderingContext2D,
   cx: number,
@@ -1080,6 +852,44 @@ export default function GameCanvas() {
   const rafRef = useRef<number>(0);
   const lastTimeRef = useRef<number>(0);
   const joystickRef = useRef({ active: false, cx: 0, cy: 0, dx: 0, dy: 0 });
+
+  // Sprite image refs
+  const spriteHumza = useRef<HTMLImageElement | null>(null);
+  const spriteAjay = useRef<HTMLImageElement | null>(null);
+  const spriteRehman = useRef<HTMLImageElement | null>(null);
+  const spriteSpAslam = useRef<HTMLImageElement | null>(null);
+  const spriteMajorIqbal = useRef<HTMLImageElement | null>(null);
+  const spriteJameel = useRef<HTMLImageElement | null>(null);
+  const spriteGrunt = useRef<HTMLImageElement | null>(null);
+
+  useEffect(() => {
+    const load = (src: string): HTMLImageElement => {
+      const img = new Image();
+      img.src = src;
+      return img;
+    };
+    spriteHumza.current = load(
+      "/assets/generated/humza-sprite-transparent.dim_200x320.png",
+    );
+    spriteAjay.current = load(
+      "/assets/generated/ajay-sprite-transparent.dim_200x320.png",
+    );
+    spriteRehman.current = load(
+      "/assets/generated/rehman-sprite-transparent.dim_200x320.png",
+    );
+    spriteSpAslam.current = load(
+      "/assets/generated/sp-aslam-sprite-transparent.dim_200x320.png",
+    );
+    spriteMajorIqbal.current = load(
+      "/assets/generated/major-iqbal-sprite-transparent.dim_200x320.png",
+    );
+    spriteJameel.current = load(
+      "/assets/generated/jameel-sprite-transparent.dim_200x320.png",
+    );
+    spriteGrunt.current = load(
+      "/assets/generated/grunt-sprite-transparent.dim_200x320.png",
+    );
+  }, []);
 
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
@@ -1466,20 +1276,53 @@ export default function GameCanvas() {
       const esy = e.y - s.camY;
       if (esx < -80 || esx > vw + 80 || esy < -80 || esy > vh + 80) continue;
       const r = e.isBoss ? BOSS_RADIUS : CHAR_RADIUS;
-      drawEnemyTopDown(
-        ctx,
-        esx,
-        esy,
-        e.angle,
-        e.color,
-        e.accentColor,
-        e.isBoss,
-        r,
-        e.hp,
-        e.maxHp,
-        e.name,
-        e.alertTimer,
-      );
+      // Draw sprite or fallback circle
+      const bossSprite: Record<string, HTMLImageElement | null> = {
+        "Rehman Dakait": spriteRehman.current,
+        "SP Aslam Choudhury": spriteSpAslam.current,
+        "Major Iqbal": spriteMajorIqbal.current,
+        "Jameel Jamali": spriteJameel.current,
+      };
+      const enemyImg = e.isBoss
+        ? (bossSprite[e.name] ?? null)
+        : spriteGrunt.current;
+      const sw = e.isBoss ? 90 : 64;
+      const sh = e.isBoss ? 144 : 102;
+      ctx.save();
+      // Shadow
+      ctx.beginPath();
+      ctx.ellipse(esx, esy + sh / 2 - 8, sw * 0.35, 8, 0, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(0,0,0,0.4)";
+      ctx.fill();
+      // Direction flip
+      const facingLeft = e.angle > Math.PI / 2 && e.angle < (3 * Math.PI) / 2;
+      if (facingLeft) {
+        ctx.translate(esx, esy);
+        ctx.scale(-1, 1);
+        ctx.translate(-esx, -esy);
+      }
+      if (enemyImg?.complete && enemyImg.naturalWidth > 0) {
+        ctx.drawImage(enemyImg, esx - sw / 2, esy - sh / 2, sw, sh);
+      } else {
+        ctx.beginPath();
+        ctx.arc(esx, esy, r, 0, Math.PI * 2);
+        ctx.fillStyle = e.color;
+        ctx.fill();
+      }
+      ctx.restore();
+      // Health bar
+      const bw = sw;
+      const bx = esx - bw / 2;
+      const by2 = esy - sh / 2 - 10;
+      ctx.fillStyle = "rgba(0,0,0,0.5)";
+      ctx.fillRect(bx, by2, bw, 6);
+      ctx.fillStyle =
+        e.hp > e.maxHp * 0.5
+          ? "#44ee44"
+          : e.hp > e.maxHp * 0.25
+            ? "#eeaa00"
+            : "#ee2222";
+      ctx.fillRect(bx, by2, bw * (e.hp / e.maxHp), 6);
       // Boss dialog
       if (e.isBoss && e.alertTimer > 0) {
         const dialog = BOSS_DIALOG[e.name] ?? "You won't beat me!";
@@ -1502,28 +1345,69 @@ export default function GameCanvas() {
     const heroSy = s.hy - s.camY;
     const heroAlpha =
       s.invincTimer > 0 ? (Math.sin(s.invincTimer * 20) > 0 ? 0.4 : 1) : 1;
-    drawHeroTopDown(
-      ctx,
-      heroSx,
-      heroSy,
-      s.hAngle,
-      s.hero === "humza",
-      heroAlpha,
-      HERO_RADIUS,
-    );
+    // Draw hero sprite
+    const heroImg =
+      s.hero === "humza" ? spriteHumza.current : spriteAjay.current;
+    const hsw = 80;
+    const hsh = 128;
+    ctx.save();
+    ctx.globalAlpha = heroAlpha;
+    // Shadow
+    ctx.beginPath();
+    ctx.ellipse(heroSx, heroSy + hsh / 2 - 8, hsw * 0.35, 8, 0, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(0,0,0,0.4)";
+    ctx.fill();
+    // Direction flip
+    const heroFacingLeft =
+      s.hAngle > Math.PI / 2 && s.hAngle < (3 * Math.PI) / 2;
+    if (heroFacingLeft) {
+      ctx.translate(heroSx, heroSy);
+      ctx.scale(-1, 1);
+      ctx.translate(-heroSx, -heroSy);
+    }
+    if (heroImg?.complete && heroImg.naturalWidth > 0) {
+      ctx.drawImage(heroImg, heroSx - hsw / 2, heroSy - hsh / 2, hsw, hsh);
+    } else {
+      ctx.beginPath();
+      ctx.arc(heroSx, heroSy, HERO_RADIUS, 0, Math.PI * 2);
+      ctx.fillStyle = s.hero === "humza" ? "#1a3a8a" : "#1a6a1a";
+      ctx.fill();
+    }
+    ctx.restore();
 
-    // Bullets
+    // Bullets (arrow shape)
     for (const b of s.bullets) {
       const bsx = b.x - s.camX;
       const bsy = b.y - s.camY;
+      const angle = Math.atan2(b.vy, b.vx);
+      const arrowLen = 18;
+      const arrowW = 5;
+      ctx.save();
+      ctx.translate(bsx, bsy);
+      ctx.rotate(angle);
+      // Arrow shaft
       ctx.beginPath();
-      ctx.arc(bsx, bsy, 5, 0, Math.PI * 2);
-      ctx.fillStyle = b.fromPlayer ? "#ffdd00" : "#ff4400";
+      ctx.rect(-arrowLen * 0.55, -1.5, arrowLen * 0.75, 3);
+      ctx.fillStyle = "#111111";
       ctx.fill();
+      // Arrowhead
       ctx.beginPath();
-      ctx.arc(bsx, bsy, 2.5, 0, Math.PI * 2);
-      ctx.fillStyle = "white";
+      ctx.moveTo(arrowLen * 0.5, 0);
+      ctx.lineTo(arrowLen * 0.5 - arrowW * 1.2, -arrowW);
+      ctx.lineTo(arrowLen * 0.5 - arrowW * 1.2, arrowW);
+      ctx.closePath();
+      ctx.fillStyle = b.fromPlayer ? "#ff6600" : "#cc0000";
       ctx.fill();
+      // Tail feathers
+      ctx.beginPath();
+      ctx.moveTo(-arrowLen * 0.55, 0);
+      ctx.lineTo(-arrowLen * 0.55 - 5, -4);
+      ctx.moveTo(-arrowLen * 0.55, 0);
+      ctx.lineTo(-arrowLen * 0.55 - 5, 4);
+      ctx.strokeStyle = b.fromPlayer ? "#ffaa00" : "#ff6666";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.restore();
     }
 
     // Bombs
