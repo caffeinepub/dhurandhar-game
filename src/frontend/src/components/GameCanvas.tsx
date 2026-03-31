@@ -1873,7 +1873,7 @@ export default function GameCanvas() {
           >
             <div className="w-12 h-12 rounded-full bg-yellow-500/30 border border-yellow-400/50" />
           </div>
-          <div className="absolute bottom-10 right-4 flex flex-col gap-3">
+          <div className="absolute bottom-16 right-4 flex flex-col gap-3">
             <button
               type="button"
               onTouchStart={(e) => {
