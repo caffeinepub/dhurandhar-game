@@ -1,9 +1,9 @@
-import Migration "migration";
+
 import Text "mo:core/Text";
 import Nat "mo:core/Nat";
 import Array "mo:core/Array";
 
-(with migration = Migration.run)
+
 actor {
   let MAX_LEADERBOARD_SIZE = 10;
   var leaderboard : [(Text, Nat)] = [];
