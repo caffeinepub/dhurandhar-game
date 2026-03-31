@@ -2,15 +2,35 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 type Phase = "menu" | "playing" | "win" | "gameover";
 type HeroName = "humza" | "ajay";
-type BgTheme = "morning" | "dusk" | "night" | "desert" | "final";
+type BgTheme = "morning" | "dusk" | "night" | "warzone" | "final";
+
+const WORLD_W = 3600;
+const WORLD_H = 2800;
+const MOVE_SPEED = 220;
+const BULLET_SPEED = 500;
+const BULLET_LIFE = 1.6;
+const BOMB_RADIUS = 170;
+const FLEE_DIST = 300;
+const FIGHT_DIST = 160;
+const BOSS_FIGHT_DIST = 250;
+const MAX_LEVEL = 20;
+const CHAR_RADIUS = 18;
+const BOSS_RADIUS = 26;
+const HERO_RADIUS = 20;
+
+interface Vec2 {
+  x: number;
+  y: number;
+}
 
 interface Entity {
   id: number;
   x: number;
+  y: number;
   hp: number;
   maxHp: number;
   vx: number;
-  facingLeft: boolean;
+  vy: number;
   dead: boolean;
   isBoss: boolean;
   name: string;
@@ -18,6 +38,10 @@ interface Entity {
   alertTimer: number;
   state: "patrol" | "flee" | "fight";
   hideX: number;
+  hideY: number;
+  angle: number;
+  color: string;
+  accentColor: string;
 }
 interface Bullet {
   id: number;
@@ -31,29 +55,44 @@ interface Bullet {
 interface Bomb {
   id: number;
   x: number;
+  y: number;
   tx: number;
+  ty: number;
   timer: number;
   exploded: boolean;
   explodeTime: number;
 }
-interface Building {
+interface CityBuilding {
   x: number;
+  y: number;
   w: number;
   h: number;
+  type:
+    | "shop"
+    | "bank"
+    | "hospital"
+    | "house"
+    | "hotel"
+    | "market"
+    | "mosque"
+    | "police";
   color: string;
+  roofColor: string;
   onFire: boolean;
   fireTimer: number;
-  sign?: string;
 }
 interface NPC {
   id: number;
   x: number;
+  y: number;
   type: "man" | "woman" | "soldier";
   hint: string;
   showBubble: boolean;
   bubbleTimer: number;
   vx: number;
+  vy: number;
   walkTimer: number;
+  angle: number;
 }
 interface Particle {
   id: number;
@@ -70,10 +109,12 @@ interface GameState {
   phase: Phase;
   hero: HeroName;
   hx: number;
+  hy: number;
   hhp: number;
   maxHhp: number;
   hvx: number;
-  hFacingLeft: boolean;
+  hvy: number;
+  hAngle: number;
   hShootCooldown: number;
   hBombs: number;
   bombRechargeTimer: number;
@@ -84,9 +125,10 @@ interface GameState {
   bullets: Bullet[];
   bombs: Bomb[];
   particles: Particle[];
-  buildings: Building[];
+  buildings: CityBuilding[];
   npcs: NPC[];
-  cameraX: number;
+  camX: number;
+  camY: number;
   screenShake: number;
   levelSplash: number;
   levelTitle: string;
@@ -95,28 +137,6 @@ interface GameState {
   muted: boolean;
   idCounter: number;
   invincTimer: number;
-}
-
-const MAX_LEVEL = 20;
-const WORLD_W = 4000;
-const HERO_H = 110;
-const ENEMY_H = 88;
-const BOSS_H = 110;
-const FLEE_DIST = 280;
-const FIGHT_DIST = 180;
-const BOSS_FIGHT_DIST = 240;
-const MOVE_SPEED = 240;
-const BULLET_SPEED = 480;
-const BULLET_LIFE = 1.4;
-const BOMB_RADIUS = 160;
-const GROUND_RATIO = 0.78;
-
-function getBgTheme(level: number): BgTheme {
-  if (level <= 4) return "morning";
-  if (level <= 8) return "dusk";
-  if (level <= 12) return "night";
-  if (level <= 16) return "desert";
-  return "final";
 }
 
 const LEVEL_TITLES: Record<number, string> = {
@@ -134,38 +154,47 @@ const LEVEL_TITLES: Record<number, string> = {
   12: "RUINS & SMOKE",
   13: "DESERT HUNT",
   14: "BAZAAR BATTLE",
-  15: "BOSS: MAJOR IQBAL",
+  15: "BOSS: JAMEEL JAMALI",
   16: "DESERT STORM",
   17: "FINAL ASSAULT",
   18: "TOTAL WARFARE",
   19: "LAST STAND",
-  20: "BOSS: JAMEEL JAMALI",
+  20: "FINAL BOSS: MAJOR IQBAL",
 };
 const BOSS_AT_LEVEL: Record<number, string> = {
   5: "Rehman Dakait",
   10: "SP Aslam Choudhury",
-  15: "Major Iqbal",
-  20: "Jameel Jamali",
+  15: "Jameel Jamali",
+  20: "Major Iqbal",
 };
-const BOSS_DEFS = [
-  { name: "Rehman Dakait", color: "#8B0000" },
-  { name: "SP Aslam Choudhury", color: "#00008B" },
-  { name: "Major Iqbal", color: "#2F4F2F" },
-  { name: "Jameel Jamali", color: "#8B6914" },
-];
-const BOSS_DIALOG = [
-  "You cannot stop me, fool!",
-  "I have the law on my side!",
-  "You dare challenge the Major?",
-  "Allah will not save you now!",
-];
+const BOSS_DIALOG: Record<string, string> = {
+  "Rehman Dakait": "You cannot stop me, fool!",
+  "SP Aslam Choudhury": "I have the law on my side!",
+  "Jameel Jamali": "Allah will not save you now!",
+  "Major Iqbal": "You dare challenge the Major?!",
+};
+const BOSS_COLORS: Record<string, [string, string]> = {
+  "Rehman Dakait": ["#8B0000", "#ff4444"],
+  "SP Aslam Choudhury": ["#00008B", "#4444ff"],
+  "Jameel Jamali": ["#8B6914", "#ffcc44"],
+  "Major Iqbal": ["#1a4a1a", "#44ff44"],
+};
 const NPC_HINTS = [
-  "Rehman Dakait is hiding ahead!",
-  "SP Aslam lurks in the shadows!",
-  "Major Iqbal is deep in the city!",
-  "Jameel Jamali is at the far end!",
+  "Rehman Dakait is hiding near the market!",
+  "SP Aslam lurks near the police station!",
+  "Jameel Jamali is hiding behind the mosque!",
+  "Major Iqbal is deep in the war zone!",
 ];
 
+function getBgTheme(level: number): BgTheme {
+  if (level <= 4) return "morning";
+  if (level <= 8) return "dusk";
+  if (level <= 12) return "night";
+  if (level <= 16) return "warzone";
+  return "final";
+}
+
+// ─── Audio ───────────────────────────────────────────────────────────────────
 let audioCtx: AudioContext | null = null;
 let droneNode: OscillatorNode | null = null;
 let droneGain: GainNode | null = null;
@@ -201,7 +230,7 @@ function playHit(muted: boolean) {
     src.buffer = buf;
     src.connect(gain);
     gain.connect(ctx.destination);
-    gain.gain.setValueAtTime(1.0, ctx.currentTime);
+    gain.gain.value = 0.8;
     src.start();
   } catch {}
 }
@@ -247,7 +276,7 @@ function startDrone(muted: boolean) {
     droneGain = ctx.createGain();
     droneNode.type = "sawtooth";
     droneNode.frequency.value = 55;
-    droneGain.gain.value = 0.05;
+    droneGain.gain.value = 0.04;
     droneNode.connect(droneGain);
     droneGain.connect(ctx.destination);
     droneNode.start();
@@ -263,6 +292,7 @@ function stopDrone() {
   droneGain = null;
 }
 
+// ─── Seeded random ───────────────────────────────────────────────────────────
 function seededRand(seed: number) {
   let s = seed;
   return () => {
@@ -271,55 +301,141 @@ function seededRand(seed: number) {
   };
 }
 
-function generateBuildings(theme: BgTheme): Building[] {
-  const rand = seededRand(42);
-  const colorMap: Record<BgTheme, string[]> = {
-    morning: ["#c8a060", "#b08050", "#d4a870", "#a07040"],
-    dusk: ["#9a6040", "#7a4020", "#b07040", "#8a5030"],
-    night: ["#1a1a2a", "#2a2a3a", "#1a2a3a", "#0a1a2a"],
-    desert: ["#c8a870", "#b09858", "#d4b880", "#a08848"],
-    final: ["#3a1010", "#2a0808", "#4a1818", "#1a0808"],
-  };
-  const signs = [
-    "\u0926\u0941\u0915\u093e\u0928",
-    "HOTEL",
-    "CHAI",
-    "786",
-    "SHOP",
-    "BAKERY",
-    "MARKET",
-    "HALAL",
-  ];
-  const colors = colorMap[theme];
-  const buildings: Building[] = [];
-  for (let i = 0; i < 60; i++) {
-    const w = 80 + rand() * 150;
-    const h = 120 + rand() * 200;
-    buildings.push({
-      x: i * (WORLD_W / 60) + rand() * 30,
-      w,
-      h,
-      color: colors[Math.floor(rand() * colors.length)],
-      onFire: false,
-      fireTimer: 0,
-      sign: rand() > 0.5 ? signs[Math.floor(rand() * signs.length)] : undefined,
-    });
+// ─── City generation ─────────────────────────────────────────────────────────
+const BUILDING_TYPES: CityBuilding["type"][] = [
+  "shop",
+  "bank",
+  "hospital",
+  "house",
+  "hotel",
+  "market",
+  "mosque",
+  "police",
+];
+const BUILDING_LABELS: Record<CityBuilding["type"], string> = {
+  shop: "DUKAAN",
+  bank: "BANK",
+  hospital: "HOSPITAL",
+  house: "MAKAAN",
+  hotel: "HOTEL",
+  market: "MARKET",
+  mosque: "MASJID",
+  police: "POLICE",
+};
+const BUILDING_COLORS: Record<
+  BgTheme,
+  Record<CityBuilding["type"], [string, string]>
+> = {
+  morning: {
+    shop: ["#d4a870", "#b08050"],
+    bank: ["#8090a8", "#606878"],
+    hospital: ["#f0f0f0", "#d0d0d0"],
+    house: ["#c89060", "#a07040"],
+    hotel: ["#a0b8d0", "#8098b0"],
+    market: ["#d4b060", "#b09040"],
+    mosque: ["#90a870", "#708060"],
+    police: ["#486890", "#304870"],
+  },
+  dusk: {
+    shop: ["#9a6040", "#7a4020"],
+    bank: ["#606878", "#404858"],
+    hospital: ["#b0b0b0", "#909090"],
+    house: ["#8a5030", "#6a3018"],
+    hotel: ["#6080a0", "#406080"],
+    market: ["#9a8040", "#7a6020"],
+    mosque: ["#607050", "#405030"],
+    police: ["#304870", "#203050"],
+  },
+  night: {
+    shop: ["#1a1a2a", "#0a0a1a"],
+    bank: ["#0a1020", "#050810"],
+    hospital: ["#202838", "#101828"],
+    house: ["#181820", "#080810"],
+    hotel: ["#101828", "#080e18"],
+    market: ["#201a10", "#100e08"],
+    mosque: ["#102010", "#081008"],
+    police: ["#081020", "#040810"],
+  },
+  warzone: {
+    shop: ["#4a2010", "#2a1008"],
+    bank: ["#282830", "#181820"],
+    hospital: ["#484030", "#302820"],
+    house: ["#3a1808", "#200c04"],
+    hotel: ["#302828", "#201818"],
+    market: ["#402010", "#200c08"],
+    mosque: ["#182010", "#0c1008"],
+    police: ["#181828", "#0c0c18"],
+  },
+  final: {
+    shop: ["#3a0808", "#200404"],
+    bank: ["#1a1010", "#0a0808"],
+    hospital: ["#302010", "#200c08"],
+    house: ["#280404", "#180202"],
+    hotel: ["#200808", "#100404"],
+    market: ["#301008", "#180804"],
+    mosque: ["#100c08", "#080604"],
+    police: ["#0a0818", "#050410"],
+  },
+};
+
+function generateCity(theme: BgTheme, seed: number): CityBuilding[] {
+  const rand = seededRand(seed);
+  const buildings: CityBuilding[] = [];
+  const palette = BUILDING_COLORS[theme];
+  // Grid: 6 columns x 5 rows of city blocks separated by roads
+  const roadW = 60;
+  const blockW = (WORLD_W - roadW * 7) / 6;
+  const blockH = (WORLD_H - roadW * 6) / 5;
+  const types = BUILDING_TYPES;
+  for (let row = 0; row < 5; row++) {
+    for (let col = 0; col < 6; col++) {
+      const bx = roadW * (col + 1) + blockW * col;
+      const by = roadW * (row + 1) + blockH * row;
+      // Each block has 1-3 buildings
+      const numBuildings = 1 + Math.floor(rand() * 3);
+      const subW = blockW / numBuildings;
+      for (let k = 0; k < numBuildings; k++) {
+        const type = types[Math.floor(rand() * types.length)];
+        const [color, roofColor] = palette[type];
+        const margin = 8 + rand() * 12;
+        buildings.push({
+          x: bx + k * subW + margin,
+          y: by + margin,
+          w: subW - margin * 2,
+          h: blockH - margin * 2,
+          type,
+          color,
+          roofColor,
+          onFire: false,
+          fireTimer: 0,
+        });
+      }
+    }
   }
   return buildings;
 }
 
-function generateNPCs(): NPC[] {
-  const positions = [500, 1200, 2000, 2800];
+function generateNPCs(seed: number): NPC[] {
+  const rand = seededRand(seed + 999);
+  const positions: Vec2[] = [
+    { x: 400, y: 400 },
+    { x: 1800, y: 600 },
+    { x: 800, y: 1800 },
+    { x: 2800, y: 1400 },
+  ];
   const types: NPC["type"][] = ["man", "soldier", "woman", "man"];
-  return positions.map((px, i) => ({
-    id: 1000 + i,
-    x: px,
+  return positions.map((pos, i) => ({
+    id: 2000 + i,
+    x: pos.x,
+    y: pos.y,
     type: types[i],
     hint: NPC_HINTS[i],
     showBubble: false,
     bubbleTimer: 0,
-    vx: 0,
-    walkTimer: Math.random() * 2,
+    vx: (rand() - 0.5) * 40,
+    vy: (rand() - 0.5) * 40,
+    walkTimer: rand() * 3,
+    angle: rand() * Math.PI * 2,
   }));
 }
 
@@ -327,64 +443,81 @@ function spawnLevelEnemies(
   level: number,
   idStart: number,
 ): { enemies: Entity[]; nextId: number } {
-  const rand = seededRand(level * 17 + 99);
-  const gruntCount = Math.min(3 + Math.floor(level * 0.4), 8);
+  const rand = seededRand(level * 31 + 7);
+  const gruntCount = Math.min(3 + Math.floor(level * 0.4), 9);
   const hpBase = 25 + level * 8;
-  const grunts: Entity[] = [];
+  const enemies: Entity[] = [];
   for (let i = 0; i < gruntCount; i++) {
-    grunts.push({
+    const angle = rand() * Math.PI * 2;
+    enemies.push({
       id: idStart + i,
-      x: 400 + rand() * (WORLD_W - 800),
+      x: 300 + rand() * (WORLD_W - 600),
+      y: 300 + rand() * (WORLD_H - 600),
       hp: hpBase,
       maxHp: hpBase,
       vx: 0,
-      facingLeft: true,
+      vy: 0,
       dead: false,
       isBoss: false,
       name: "Enemy",
-      shootCooldown: 0,
+      shootCooldown: rand() * 2,
       alertTimer: 0,
       state: "patrol",
-      hideX: 400 + rand() * (WORLD_W - 800),
+      hideX: 300 + rand() * (WORLD_W - 600),
+      hideY: 300 + rand() * (WORLD_H - 600),
+      angle,
+      color: "#2a1010",
+      accentColor: "#cc3300",
     });
   }
   let nextId = idStart + gruntCount;
   const bossName = BOSS_AT_LEVEL[level];
   if (bossName) {
     const bossHp = 200 + level * 30;
-    grunts.push({
+    const [color, accentColor] = BOSS_COLORS[bossName] ?? [
+      "#440000",
+      "#ff0000",
+    ];
+    enemies.push({
       id: nextId,
-      x: WORLD_W * 0.7 + (Math.random() - 0.5) * 400,
+      x: 200 + rand() * (WORLD_W - 400),
+      y: 200 + rand() * (WORLD_H - 400),
       hp: bossHp,
       maxHp: bossHp,
       vx: 0,
-      facingLeft: true,
+      vy: 0,
       dead: false,
       isBoss: true,
       name: bossName,
       shootCooldown: 0,
       alertTimer: 0,
       state: "patrol",
-      hideX: WORLD_W * 0.6,
+      hideX: WORLD_W * 0.5 + rand() * 400,
+      hideY: WORLD_H * 0.5 + rand() * 400,
+      angle: 0,
+      color,
+      accentColor,
     });
     nextId++;
   }
-  return { enemies: grunts, nextId };
+  return { enemies, nextId };
 }
 
 function initGameState(hero: HeroName): GameState {
   const theme = getBgTheme(1);
-  const buildings = generateBuildings(theme);
-  const npcs = generateNPCs();
+  const buildings = generateCity(theme, 1);
+  const npcs = generateNPCs(1);
   const { enemies, nextId } = spawnLevelEnemies(1, 200);
   return {
     phase: "playing",
     hero,
-    hx: 200,
+    hx: 180,
+    hy: 180,
     hhp: 200,
     maxHhp: 200,
     hvx: 0,
-    hFacingLeft: false,
+    hvy: 0,
+    hAngle: 0,
     hShootCooldown: 0,
     hBombs: 3,
     bombRechargeTimer: 0,
@@ -397,9 +530,10 @@ function initGameState(hero: HeroName): GameState {
     particles: [],
     buildings,
     npcs,
-    cameraX: 0,
+    camX: 0,
+    camY: 0,
     screenShake: 0,
-    levelSplash: 0,
+    levelSplash: 2.5,
     levelTitle: LEVEL_TITLES[1] ?? "LEVEL 1",
     bossWarning: "",
     bossWarningTimer: 0,
@@ -409,17 +543,18 @@ function initGameState(hero: HeroName): GameState {
   };
 }
 
+// ─── Game actions ─────────────────────────────────────────────────────────────
 function heroShoot(s: GameState) {
   if (s.hShootCooldown > 0) return;
   s.hShootCooldown = 0.18;
-  const vy = window.innerHeight * GROUND_RATIO - HERO_H / 2;
-  const vx = s.hFacingLeft ? -BULLET_SPEED : BULLET_SPEED;
+  const vx = Math.cos(s.hAngle) * BULLET_SPEED;
+  const vy = Math.sin(s.hAngle) * BULLET_SPEED;
   s.bullets.push({
     id: s.idCounter++,
-    x: s.hx - s.cameraX,
-    y: vy,
+    x: s.hx,
+    y: s.hy,
     vx,
-    vy: 0,
+    vy,
     fromPlayer: true,
     life: BULLET_LIFE,
   });
@@ -429,33 +564,40 @@ function throwBomb(s: GameState) {
   if (s.hBombs <= 0) return;
   s.hBombs--;
   const alive = s.enemies.filter((e) => !e.dead);
-  let tx = s.hx + (s.hFacingLeft ? -300 : 300);
+  let tx = s.hx + Math.cos(s.hAngle) * 250;
+  let ty = s.hy + Math.sin(s.hAngle) * 250;
   if (alive.length > 0) {
     const nearest = alive.reduce((best, e) =>
-      Math.abs(e.x - s.hx) < Math.abs(best.x - s.hx) ? e : best,
+      Math.hypot(e.x - s.hx, e.y - s.hy) <
+      Math.hypot(best.x - s.hx, best.y - s.hy)
+        ? e
+        : best,
     );
     tx = nearest.x;
+    ty = nearest.y;
   }
   s.bombs.push({
     id: s.idCounter++,
     x: s.hx,
+    y: s.hy,
     tx,
-    timer: 1.2,
+    ty,
+    timer: 1.0,
     exploded: false,
     explodeTime: 0,
   });
 }
 function enemyShoot(s: GameState, e: Entity) {
-  const gy = window.innerHeight * GROUND_RATIO;
-  const vy = gy - (e.isBoss ? BOSS_H : ENEMY_H) / 2;
   const dx = s.hx - e.x;
-  const speed = BULLET_SPEED * 0.7;
+  const dy = s.hy - e.y;
+  const dist = Math.hypot(dx, dy) || 1;
+  const speed = BULLET_SPEED * 0.65;
   s.bullets.push({
     id: s.idCounter++,
-    x: e.x - s.cameraX,
-    y: vy,
-    vx: dx > 0 ? speed : -speed,
-    vy: 0,
+    x: e.x,
+    y: e.y,
+    vx: (dx / dist) * speed,
+    vy: (dy / dist) * speed,
     fromPlayer: false,
     life: BULLET_LIFE,
   });
@@ -469,13 +611,13 @@ function spawnParticles(
 ) {
   for (let i = 0; i < count; i++) {
     const angle = Math.random() * Math.PI * 2;
-    const speed = 50 + Math.random() * 200;
+    const speed = 60 + Math.random() * 180;
     s.particles.push({
       id: s.idCounter++,
       x: sx,
       y: sy,
       vx: Math.cos(angle) * speed,
-      vy: Math.sin(angle) * speed - 100,
+      vy: Math.sin(angle) * speed,
       life: 0.4 + Math.random() * 0.6,
       maxLife: 1,
       color,
@@ -484,460 +626,460 @@ function spawnParticles(
   }
 }
 
+// ─── Top-down character drawing ───────────────────────────────────────────────
+function drawHeroTopDown(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  angle: number,
+  isHumza: boolean,
+  alpha: number,
+  radius: number,
+) {
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  // Shadow
+  ctx.beginPath();
+  ctx.ellipse(cx + 4, cy + 4, radius + 2, radius - 4, 0, 0, Math.PI * 2);
+  ctx.fillStyle = "rgba(0,0,0,0.35)";
+  ctx.fill();
+  // Body
+  const bodyColor = isHumza ? "#1a3a8a" : "#1a6a1a";
+  const vestColor = isHumza ? "#2a5acc" : "#2a8a2a";
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+  ctx.fillStyle = bodyColor;
+  ctx.fill();
+  ctx.strokeStyle = vestColor;
+  ctx.lineWidth = 3;
+  ctx.stroke();
+  // Tactical vest stripes
+  ctx.strokeStyle = "rgba(255,255,255,0.25)";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius * 0.6, 0, Math.PI * 2);
+  ctx.stroke();
+  // Face
+  const faceDx = Math.cos(angle) * radius * 0.5;
+  const faceDy = Math.sin(angle) * radius * 0.5;
+  ctx.beginPath();
+  ctx.arc(cx + faceDx, cy + faceDy, radius * 0.45, 0, Math.PI * 2);
+  ctx.fillStyle = isHumza ? "#c8956a" : "#c09a70";
+  ctx.fill();
+  // Eyes
+  const eyeR = radius * 0.12;
+  const perp = angle + Math.PI / 2;
+  for (const s of [-1, 1]) {
+    const ex =
+      cx +
+      faceDx +
+      Math.cos(perp) * s * radius * 0.15 +
+      Math.cos(angle) * radius * 0.1;
+    const ey =
+      cy +
+      faceDy +
+      Math.sin(perp) * s * radius * 0.15 +
+      Math.sin(angle) * radius * 0.1;
+    ctx.beginPath();
+    ctx.arc(ex, ey, eyeR, 0, Math.PI * 2);
+    ctx.fillStyle = "#1a0a00";
+    ctx.fill();
+  }
+  // Hair
+  ctx.beginPath();
+  ctx.arc(
+    cx + faceDx - Math.cos(angle) * radius * 0.2,
+    cy + faceDy - Math.sin(angle) * radius * 0.2,
+    radius * 0.32,
+    0,
+    Math.PI * 2,
+  );
+  ctx.fillStyle = isHumza ? "#1a0a00" : "#0a0a0a";
+  ctx.fill();
+  // Gun
+  const gunLen = radius * 1.8;
+  ctx.beginPath();
+  ctx.moveTo(
+    cx + Math.cos(angle) * radius * 0.7,
+    cy + Math.sin(angle) * radius * 0.7,
+  );
+  ctx.lineTo(
+    cx + Math.cos(angle) * (radius + gunLen),
+    cy + Math.sin(angle) * (radius + gunLen),
+  );
+  ctx.strokeStyle = "#333";
+  ctx.lineWidth = 4;
+  ctx.stroke();
+  ctx.strokeStyle = "#555";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawEnemyTopDown(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  angle: number,
+  color: string,
+  accentColor: string,
+  isBoss: boolean,
+  radius: number,
+  hp: number,
+  maxHp: number,
+  name: string,
+  alertTimer: number,
+) {
+  ctx.save();
+  // Shadow
+  ctx.beginPath();
+  ctx.ellipse(cx + 3, cy + 3, radius + 2, radius - 3, 0, 0, Math.PI * 2);
+  ctx.fillStyle = "rgba(0,0,0,0.4)";
+  ctx.fill();
+  // Body
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+  ctx.fillStyle = color;
+  ctx.fill();
+  ctx.strokeStyle = accentColor;
+  ctx.lineWidth = isBoss ? 4 : 2.5;
+  ctx.stroke();
+  // Inner ring (clothing detail)
+  ctx.strokeStyle = "rgba(255,255,255,0.18)";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius * 0.6, 0, Math.PI * 2);
+  ctx.stroke();
+  // Face
+  const faceDx = Math.cos(angle) * radius * 0.45;
+  const faceDy = Math.sin(angle) * radius * 0.45;
+  ctx.beginPath();
+  ctx.arc(cx + faceDx, cy + faceDy, radius * 0.42, 0, Math.PI * 2);
+  ctx.fillStyle = "#b07850";
+  ctx.fill();
+  // Eyes
+  const eyeR = radius * 0.1;
+  const perp = angle + Math.PI / 2;
+  for (const side of [-1, 1]) {
+    const ex =
+      cx +
+      faceDx +
+      Math.cos(perp) * side * radius * 0.14 +
+      Math.cos(angle) * radius * 0.08;
+    const ey =
+      cy +
+      faceDy +
+      Math.sin(perp) * side * radius * 0.14 +
+      Math.sin(angle) * radius * 0.08;
+    ctx.beginPath();
+    ctx.arc(ex, ey, eyeR, 0, Math.PI * 2);
+    ctx.fillStyle = "#100800";
+    ctx.fill();
+  }
+  // Boss headgear
+  if (isBoss) {
+    ctx.beginPath();
+    ctx.arc(
+      cx + faceDx - Math.cos(angle) * radius * 0.15,
+      cy + faceDy - Math.sin(angle) * radius * 0.15,
+      radius * 0.42,
+      Math.PI * 1.1,
+      Math.PI * 1.9,
+    );
+    ctx.strokeStyle = accentColor;
+    ctx.lineWidth = 5;
+    ctx.stroke();
+    // Badge dot
+    ctx.beginPath();
+    ctx.arc(
+      cx + faceDx,
+      cy + faceDy - radius * 0.3,
+      radius * 0.1,
+      0,
+      Math.PI * 2,
+    );
+    ctx.fillStyle = "#ffd700";
+    ctx.fill();
+  } else {
+    // Keffiyeh hint
+    ctx.beginPath();
+    ctx.arc(
+      cx + faceDx,
+      cy + faceDy,
+      radius * 0.48,
+      Math.PI * 0.9,
+      Math.PI * 2.1,
+    );
+    ctx.strokeStyle = "#1a1a1a";
+    ctx.lineWidth = 4;
+    ctx.stroke();
+  }
+  // Gun
+  const gunLen = radius * 1.5;
+  ctx.beginPath();
+  ctx.moveTo(
+    cx + Math.cos(angle) * radius * 0.65,
+    cy + Math.sin(angle) * radius * 0.65,
+  );
+  ctx.lineTo(
+    cx + Math.cos(angle) * (radius + gunLen),
+    cy + Math.sin(angle) * (radius + gunLen),
+  );
+  ctx.strokeStyle = "#222";
+  ctx.lineWidth = 3.5;
+  ctx.stroke();
+  // HP bar (above character)
+  if (isBoss || hp < maxHp) {
+    const barW = radius * 2.5;
+    const barX = cx - barW / 2;
+    const barY = cy - radius - 14;
+    ctx.fillStyle = "rgba(0,0,0,0.7)";
+    ctx.fillRect(barX - 1, barY - 1, barW + 2, 9);
+    ctx.fillStyle = "#ff2200";
+    ctx.fillRect(barX, barY, barW * (hp / maxHp), 7);
+    if (isBoss) {
+      ctx.fillStyle = "white";
+      ctx.font = `bold ${Math.max(9, radius * 0.55)}px Arial`;
+      ctx.textAlign = "center";
+      ctx.fillText(name, cx, barY - 3);
+    }
+  }
+  // Alert
+  if (alertTimer > 0) {
+    ctx.fillStyle = "#ffee00";
+    ctx.font = `bold ${radius}px Arial`;
+    ctx.textAlign = "center";
+    ctx.fillText("!", cx, cy - radius - 18);
+  }
+  ctx.restore();
+}
+
+function drawNPCTopDown(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  type: NPC["type"],
+  hint: string,
+  showBubble: boolean,
+) {
+  ctx.save();
+  const r = 14;
+  ctx.beginPath();
+  ctx.arc(cx + 2, cy + 2, r, 0, Math.PI * 2);
+  ctx.fillStyle = "rgba(0,0,0,0.3)";
+  ctx.fill();
+  const colors = { man: "#d4890a", woman: "#e07080", soldier: "#4a7040" };
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fillStyle = colors[type];
+  ctx.fill();
+  ctx.strokeStyle = "rgba(255,255,255,0.5)";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  // Face
+  ctx.beginPath();
+  ctx.arc(cx, cy - r * 0.3, r * 0.55, 0, Math.PI * 2);
+  ctx.fillStyle = "#c8906a";
+  ctx.fill();
+  if (showBubble) {
+    const bw = Math.max(120, hint.length * 5.5);
+    const bh = 28;
+    const bx = cx - bw / 2;
+    const by = cy - r - bh - 12;
+    ctx.fillStyle = "rgba(255,255,220,0.95)";
+    ctx.beginPath();
+    ctx.roundRect(bx, by, bw, bh, 6);
+    ctx.fill();
+    ctx.strokeStyle = "#888";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.fillStyle = "#333";
+    ctx.font = "9px Arial";
+    ctx.textAlign = "center";
+    ctx.fillText(hint, cx, by + 10, bw - 6);
+    ctx.fillText("", cx, by + 21, bw - 6);
+  }
+  ctx.restore();
+}
+
+// ─── Fire drawing ─────────────────────────────────────────────────────────────
 function drawFire(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
-  width: number,
+  w: number,
 ) {
   const t = performance.now() / 100;
-  for (let i = 0; i < 5; i++) {
-    const fx = x + Math.sin(t + i * 1.3) * width * 0.3;
-    const fh = 20 + Math.sin(t * 0.7 + i) * 10;
+  for (let i = 0; i < 4; i++) {
+    const fx = x + Math.sin(t + i * 1.4) * w * 0.25;
+    const fh = 18 + Math.sin(t * 0.8 + i) * 8;
     const fg = ctx.createRadialGradient(fx, y, 0, fx, y - fh, fh);
     fg.addColorStop(0, "rgba(255,240,0,0.9)");
     fg.addColorStop(0.5, "rgba(255,100,0,0.7)");
     fg.addColorStop(1, "rgba(255,0,0,0)");
     ctx.beginPath();
-    ctx.ellipse(fx, y - fh / 2, width * 0.14, fh / 2, 0, 0, Math.PI * 2);
+    ctx.ellipse(fx, y - fh / 2, w * 0.13, fh / 2, 0, 0, Math.PI * 2);
     ctx.fillStyle = fg;
     ctx.fill();
   }
 }
 
-function drawBackground(
+// ─── City rendering (top-down) ────────────────────────────────────────────────
+function drawCity(
   ctx: CanvasRenderingContext2D,
+  camX: number,
+  camY: number,
   vw: number,
   vh: number,
-  groundY: number,
-  camX: number,
   theme: BgTheme,
-  buildings: Building[],
+  buildings: CityBuilding[],
+  level: number,
 ) {
-  const sky = ctx.createLinearGradient(0, 0, 0, groundY);
-  if (theme === "morning") {
-    sky.addColorStop(0, "#1a6090");
-    sky.addColorStop(0.5, "#f0a030");
-    sky.addColorStop(1, "#e87020");
-  } else if (theme === "dusk") {
-    sky.addColorStop(0, "#0a1a40");
-    sky.addColorStop(0.4, "#c04010");
-    sky.addColorStop(1, "#e06020");
-  } else if (theme === "night") {
-    sky.addColorStop(0, "#050510");
-    sky.addColorStop(0.6, "#0a0a20");
-    sky.addColorStop(1, "#1a0808");
-  } else if (theme === "desert") {
-    sky.addColorStop(0, "#5a8ab8");
-    sky.addColorStop(0.5, "#d8b878");
-    sky.addColorStop(1, "#c8a060");
-  } else {
-    sky.addColorStop(0, "#1a0000");
-    sky.addColorStop(0.4, "#8a1010");
-    sky.addColorStop(1, "#c02020");
+  // Road/ground fill
+  const roadColors: Record<BgTheme, string> = {
+    morning: "#888070",
+    dusk: "#5a4a3a",
+    night: "#1a1818",
+    warzone: "#4a3020",
+    final: "#2a1010",
+  };
+  const sidewalkColors: Record<BgTheme, string> = {
+    morning: "#c0b090",
+    dusk: "#8a7060",
+    night: "#302828",
+    warzone: "#6a4030",
+    final: "#3a1818",
+  };
+  ctx.fillStyle = roadColors[theme];
+  ctx.fillRect(0, 0, vw, vh);
+
+  // Road markings
+  const roadW = 60;
+  const blockW = (WORLD_W - roadW * 7) / 6;
+  const blockH = (WORLD_H - roadW * 6) / 5;
+  // Vertical roads
+  for (let col = 0; col <= 6; col++) {
+    const rx = roadW * col + blockW * col - camX;
+    ctx.fillStyle = sidewalkColors[theme];
+    ctx.fillRect(rx, -camY, roadW, WORLD_H);
+    // Center lane marking
+    ctx.strokeStyle = "rgba(255,255,255,0.2)";
+    ctx.lineWidth = 2;
+    ctx.setLineDash([20, 20]);
+    ctx.beginPath();
+    ctx.moveTo(rx + roadW / 2, -camY);
+    ctx.lineTo(rx + roadW / 2, WORLD_H - camY);
+    ctx.stroke();
+    ctx.setLineDash([]);
   }
-  ctx.fillStyle = sky;
-  ctx.fillRect(0, 0, vw, groundY);
-  if (theme === "night" || theme === "final") {
-    const rand = seededRand(77);
-    for (let i = 0; i < 80; i++) {
-      const sx = rand() * vw;
-      const sy = rand() * groundY * 0.7;
-      ctx.beginPath();
-      ctx.arc(sx, sy, 1, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(255,255,255,${0.4 + rand() * 0.6})`;
-      ctx.fill();
-    }
-    const t = performance.now() / 1000;
-    for (let i = 0; i < 4; i++) {
-      const sx = (vw * (i + 1)) / 5;
-      for (let j = 0; j < 5; j++) {
-        const sy = groundY - j * 50 - 20;
-        const alpha = (0.3 - j * 0.05) * (0.7 + Math.sin(t + i) * 0.3);
-        ctx.beginPath();
-        ctx.arc(
-          sx + Math.sin(t * 0.5 + i + j) * 12,
-          sy,
-          18 + j * 8,
-          0,
-          Math.PI * 2,
-        );
-        ctx.fillStyle = `rgba(40,40,40,${alpha})`;
-        ctx.fill();
+  // Horizontal roads
+  for (let row = 0; row <= 5; row++) {
+    const ry = roadW * row + blockH * row - camY;
+    ctx.fillStyle = sidewalkColors[theme];
+    ctx.fillRect(-camX, ry, WORLD_W, roadW);
+    ctx.strokeStyle = "rgba(255,255,255,0.2)";
+    ctx.lineWidth = 2;
+    ctx.setLineDash([20, 20]);
+    ctx.beginPath();
+    ctx.moveTo(-camX, ry + roadW / 2);
+    ctx.lineTo(WORLD_W - camX, ry + roadW / 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // Buildings
+  for (const b of buildings) {
+    const bsx = b.x - camX;
+    const bsy = b.y - camY;
+    if (bsx > vw + b.w || bsx < -b.w || bsy > vh + b.h || bsy < -b.h) continue;
+    // Wall
+    ctx.fillStyle = b.color;
+    ctx.fillRect(bsx, bsy, b.w, b.h);
+    // Roof
+    ctx.fillStyle = b.roofColor;
+    ctx.fillRect(bsx + 6, bsy + 6, b.w - 12, b.h - 12);
+    // Roof detail lines
+    ctx.strokeStyle = "rgba(0,0,0,0.2)";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(bsx + 6, bsy + 6, b.w - 12, b.h - 12);
+    // Sign on building top
+    const label = BUILDING_LABELS[b.type];
+    ctx.fillStyle = "rgba(0,0,0,0.65)";
+    ctx.fillRect(bsx + b.w * 0.1, bsy + b.h * 0.05, b.w * 0.8, 16);
+    const textColor =
+      b.type === "hospital"
+        ? "#ff4444"
+        : b.type === "police"
+          ? "#4488ff"
+          : b.type === "mosque"
+            ? "#44ff88"
+            : "#ffffaa";
+    ctx.fillStyle = textColor;
+    ctx.font = "bold 9px Arial";
+    ctx.textAlign = "center";
+    ctx.fillText(label, bsx + b.w / 2, bsy + b.h * 0.05 + 12);
+    // Door
+    ctx.fillStyle = "rgba(0,0,0,0.5)";
+    const doorW = Math.min(b.w * 0.2, 18);
+    const doorH = Math.min(b.h * 0.25, 22);
+    ctx.fillRect(bsx + b.w / 2 - doorW / 2, bsy + b.h - doorH, doorW, doorH);
+    // Windows
+    ctx.fillStyle =
+      theme === "night" || theme === "final"
+        ? "rgba(255,200,100,0.7)"
+        : "rgba(180,200,255,0.5)";
+    const wSize = Math.min(b.w * 0.12, 10);
+    for (let wx = bsx + 14; wx < bsx + b.w - 14; wx += 22) {
+      for (let wy = bsy + 22; wy < bsy + b.h - 20; wy += 20) {
+        ctx.fillRect(wx, wy, wSize, wSize - 2);
       }
     }
+    if (b.onFire) {
+      drawFire(ctx, bsx + b.w / 2, bsy + b.h / 2, b.w * 0.6);
+    }
   }
-  if (theme === "final") {
+
+  // Night/war atmosphere overlay
+  if (theme === "night" || theme === "final" || theme === "warzone") {
     const t = performance.now() / 1000;
-    for (let i = 0; i < 3; i++) {
-      const alpha = Math.max(0, Math.sin(t * 3 + i * 2.1) * 0.3);
-      const bx = vw * (0.2 + i * 0.3);
-      const by = groundY * 0.5;
-      const grad = ctx.createRadialGradient(bx, by, 0, bx, by, 80);
-      grad.addColorStop(0, `rgba(255,180,0,${alpha})`);
-      grad.addColorStop(1, "rgba(255,0,0,0)");
-      ctx.fillStyle = grad;
-      ctx.fillRect(bx - 80, by - 80, 160, 160);
+    const intensity =
+      theme === "final" ? 0.35 : theme === "warzone" ? 0.2 : 0.15;
+    // Smoke columns at war levels
+    if (level >= 9) {
+      for (let i = 0; i < 4; i++) {
+        const sx = (700 + i * 900 - camX) % vw;
+        const alpha =
+          (0.15 + Math.sin(t * 0.4 + i) * 0.06) * Math.min(1, (level - 8) / 4);
+        const grad = ctx.createRadialGradient(
+          sx,
+          vh * 0.5,
+          0,
+          sx,
+          vh * 0.5,
+          120,
+        );
+        grad.addColorStop(0, `rgba(40,30,20,${alpha * 2})`);
+        grad.addColorStop(1, "rgba(0,0,0,0)");
+        ctx.fillStyle = grad;
+        ctx.fillRect(sx - 120, 0, 240, vh);
+      }
     }
+    ctx.fillStyle = `rgba(0,0,0,${intensity})`;
+    ctx.fillRect(0, 0, vw, vh);
   }
-  const farColors: Record<BgTheme, string[]> = {
-    morning: ["#c8a060", "#b08050"],
-    dusk: ["#5a2010", "#4a1808"],
-    night: ["#0a0a18", "#080810"],
-    desert: ["#c0a858", "#b09848"],
-    final: ["#3a0808", "#2a0404"],
-  };
-  for (let i = 0; i < 14; i++) {
-    const bx =
-      ((((i * 170 - camX * 0.06) % (vw + 200)) + vw + 200) % (vw + 200)) - 100;
-    const bh = 90 + (i % 4) * 45;
-    ctx.fillStyle = farColors[theme][i % 2];
-    ctx.fillRect(bx, groundY - bh, 150, bh);
-    const winColor =
-      theme === "night"
-        ? "rgba(255,180,0,0.6)"
-        : theme === "final"
-          ? "rgba(255,60,0,0.5)"
-          : "rgba(255,220,130,0.4)";
-    ctx.fillStyle = winColor;
-    for (let wy = groundY - bh + 14; wy < groundY - 14; wy += 20)
-      for (let wx = bx + 8; wx < bx + 140; wx += 22)
-        ctx.fillRect(wx, wy, 12, 12);
-  }
-  const midColors: Record<BgTheme, string[]> = {
-    morning: ["#e8b870", "#d09858"],
-    dusk: ["#7a3020", "#6a2010"],
-    night: ["#141428", "#101020"],
-    desert: ["#d4b870", "#c0a860"],
-    final: ["#4a1010", "#380808"],
-  };
-  for (let i = 0; i < 10; i++) {
-    const bx =
-      ((((i * 220 + 80 - camX * 0.14) % (vw + 260)) + vw + 260) % (vw + 260)) -
-      130;
-    const bh = 120 + (i % 3) * 65;
-    ctx.fillStyle = midColors[theme][i % 2];
-    ctx.fillRect(bx, groundY - bh, 180, bh);
-    ctx.fillStyle = "rgba(0,0,0,0.15)";
-    ctx.fillRect(bx + 162, groundY - bh, 18, bh);
-    const winClr =
-      theme === "night"
-        ? "rgba(255,140,0,0.65)"
-        : theme === "final"
-          ? "rgba(255,40,0,0.6)"
-          : "rgba(255,220,100,0.5)";
-    ctx.fillStyle = winClr;
-    for (let wy = groundY - bh + 16; wy < groundY - 16; wy += 24)
-      for (let wx = bx + 12; wx < bx + 168; wx += 26)
-        ctx.fillRect(wx, wy, 14, 14);
-    if (i % 3 === 0) {
-      ctx.fillStyle = "rgba(170,40,40,0.8)";
-      ctx.fillRect(bx + 10, groundY - 34, 160, 26);
-      ctx.fillStyle = "#fff";
-      ctx.font = "bold 10px Arial";
-      ctx.textAlign = "center";
-      const signs = [
-        "\u0926\u0941\u0915\u093e\u0928",
-        "HOTEL",
-        "CHAI",
-        "786",
-        "MARKET",
-      ];
-      ctx.fillText(signs[i % signs.length], bx + 90, groundY - 15);
-    }
-  }
-  const nearC: Record<BgTheme, string> = {
-    morning: "#a07840",
-    dusk: "#3a1008",
-    night: "#080818",
-    desert: "#a09050",
-    final: "#280404",
-  };
-  for (let i = 0; i < 5; i++) {
-    const bx =
-      ((((i * 320 + 160 - camX * 0.22) % (vw + 320)) + vw + 320) % (vw + 320)) -
-      160;
-    const bh = 150 + (i % 2) * 90;
-    ctx.fillStyle = nearC[theme];
-    ctx.fillRect(bx, groundY - bh, 70, bh);
-  }
-  for (const b of buildings) {
-    const sx = b.x - camX;
-    if (sx < -b.w - 5 || sx > vw + 5) continue;
-    ctx.fillStyle = b.color;
-    ctx.fillRect(sx, groundY - b.h, b.w, b.h);
-    if (b.sign) {
-      ctx.fillStyle = "rgba(120,20,20,0.8)";
-      ctx.fillRect(sx + 4, groundY - 32, b.w - 8, 22);
-      ctx.fillStyle = "#fff";
-      ctx.font = "bold 9px Arial";
-      ctx.textAlign = "center";
-      ctx.fillText(b.sign, sx + b.w / 2, groundY - 16);
-    }
-    if (b.onFire) drawFire(ctx, sx + b.w / 2, groundY - b.h, b.w);
-  }
-  const groundGrad = ctx.createLinearGradient(0, groundY, 0, vh);
-  if (theme === "night" || theme === "final") {
-    groundGrad.addColorStop(0, "#1a1010");
-    groundGrad.addColorStop(1, "#0a0808");
-  } else if (theme === "desert") {
-    groundGrad.addColorStop(0, "#c8a860");
-    groundGrad.addColorStop(1, "#a08840");
-  } else {
-    groundGrad.addColorStop(0, "#6a5030");
-    groundGrad.addColorStop(1, "#3a2810");
-  }
-  ctx.fillStyle = groundGrad;
-  ctx.fillRect(0, groundY, vw, vh - groundY);
-  ctx.strokeStyle =
-    theme === "night" || theme === "final"
-      ? "rgba(255,255,255,0.12)"
-      : "rgba(255,255,255,0.18)";
-  ctx.lineWidth = 3;
-  ctx.setLineDash([40, 30]);
-  ctx.beginPath();
-  ctx.moveTo(0, groundY + (vh - groundY) * 0.4);
-  ctx.lineTo(vw, groundY + (vh - groundY) * 0.4);
-  ctx.stroke();
-  ctx.setLineDash([]);
-  const haze = ctx.createLinearGradient(0, groundY - 50, 0, groundY);
-  haze.addColorStop(0, "rgba(0,0,0,0)");
-  haze.addColorStop(
-    1,
-    theme === "night"
-      ? "rgba(40,10,0,0.4)"
-      : theme === "final"
-        ? "rgba(60,0,0,0.5)"
-        : "rgba(100,60,20,0.3)",
-  );
-  ctx.fillStyle = haze;
-  ctx.fillRect(0, groundY - 50, vw, 50);
 }
 
-function drawCharFallback(
-  ctx: CanvasRenderingContext2D,
-  cx: number,
-  gy: number,
-  facingLeft: boolean,
-  isHero: boolean,
-  isBoss: boolean,
-  alpha = 1,
-) {
-  ctx.save();
-  ctx.globalAlpha = alpha;
-  if (facingLeft) {
-    ctx.scale(-1, 1);
-    // biome-ignore lint/style/noParameterAssign: mirror
-    cx = -cx;
-  }
-  const h = isHero || isBoss ? HERO_H : ENEMY_H;
-  const s = h / 110;
-  ctx.fillStyle = "rgba(0,0,0,0.3)";
-  ctx.beginPath();
-  ctx.ellipse(cx, gy, 24 * s, 6 * s, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = "#2a1a0a";
-  ctx.fillRect(cx - 14 * s, gy - 12 * s, 11 * s, 12 * s);
-  ctx.fillRect(cx + 3 * s, gy - 12 * s, 11 * s, 12 * s);
-  ctx.fillStyle = isHero ? "#1a3a8a" : isBoss ? "#5a1010" : "#2a2a2a";
-  ctx.fillRect(cx - 16 * s, gy - 50 * s, 14 * s, 40 * s);
-  ctx.fillRect(cx + 2 * s, gy - 50 * s, 14 * s, 40 * s);
-  ctx.fillRect(cx - 18 * s, gy - 86 * s, 36 * s, 38 * s);
-  ctx.fillRect(cx - 32 * s, gy - 86 * s, 14 * s, 26 * s);
-  ctx.fillRect(cx + 18 * s, gy - 86 * s, 14 * s, 26 * s);
-  ctx.fillStyle = "#b08060";
-  ctx.beginPath();
-  ctx.ellipse(cx - 25 * s, gy - 60 * s, 8 * s, 7 * s, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.beginPath();
-  ctx.ellipse(cx + 25 * s, gy - 60 * s, 8 * s, 7 * s, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = "#444";
-  ctx.fillRect(cx + 18 * s, gy - 76 * s, 26 * s, 6 * s);
-  ctx.fillStyle = "#b08060";
-  ctx.fillRect(cx - 6 * s, gy - 96 * s, 12 * s, 10 * s);
-  ctx.beginPath();
-  ctx.ellipse(cx, gy - 108 * s, 16 * s, 18 * s, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = "#1a0a00";
-  ctx.beginPath();
-  ctx.ellipse(cx, gy - 118 * s, 16 * s, 9 * s, 0, Math.PI, 0);
-  ctx.fill();
-  ctx.fillRect(cx - 16 * s, gy - 118 * s, 32 * s, 7 * s);
-  ctx.fillStyle = "white";
-  ctx.beginPath();
-  ctx.ellipse(cx - 5 * s, gy - 110 * s, 4 * s, 3.5 * s, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.beginPath();
-  ctx.ellipse(cx + 5 * s, gy - 110 * s, 4 * s, 3.5 * s, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = "#1a0800";
-  ctx.beginPath();
-  ctx.arc(cx - 5 * s, gy - 110 * s, 2.5 * s, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.beginPath();
-  ctx.arc(cx + 5 * s, gy - 110 * s, 2.5 * s, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.restore();
-}
-
-function drawNPC(
-  ctx: CanvasRenderingContext2D,
-  cx: number,
-  gy: number,
-  type: NPC["type"],
-) {
-  ctx.save();
-  ctx.fillStyle = "rgba(0,0,0,0.2)";
-  ctx.beginPath();
-  ctx.ellipse(cx, gy, 16, 4, 0, 0, Math.PI * 2);
-  ctx.fill();
-  if (type === "soldier") {
-    ctx.fillStyle = "#3a3820";
-    ctx.fillRect(cx - 7, gy - 10, 6, 10);
-    ctx.fillRect(cx + 1, gy - 10, 6, 10);
-    ctx.fillStyle = "#4a5e2a";
-    ctx.fillRect(cx - 9, gy - 40, 18, 30);
-    ctx.fillRect(cx - 16, gy - 40, 9, 22);
-    ctx.fillRect(cx + 7, gy - 40, 9, 22);
-    ctx.fillStyle = "#d4a56a";
-    ctx.beginPath();
-    ctx.arc(cx, gy - 50, 9, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = "#3a4e1a";
-    ctx.fillRect(cx - 10, gy - 60, 20, 10);
-  } else if (type === "woman") {
-    ctx.fillStyle = "#ff6020";
-    ctx.fillRect(cx - 8, gy - 40, 16, 40);
-    ctx.fillStyle = "#cc4010";
-    ctx.fillRect(cx - 10, gy - 62, 20, 24);
-    ctx.fillRect(cx - 16, gy - 62, 8, 18);
-    ctx.fillRect(cx + 8, gy - 62, 8, 18);
-    ctx.fillStyle = "#d4956a";
-    ctx.beginPath();
-    ctx.arc(cx, gy - 72, 9, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = "#cc0000";
-    ctx.beginPath();
-    ctx.arc(cx, gy - 76, 2, 0, Math.PI * 2);
-    ctx.fill();
-  } else {
-    ctx.fillStyle = "#7a4010";
-    ctx.fillRect(cx - 6, gy - 10, 5, 10);
-    ctx.fillRect(cx + 1, gy - 10, 5, 10);
-    ctx.fillStyle = "#e87020";
-    ctx.fillRect(cx - 10, gy - 40, 20, 30);
-    ctx.fillRect(cx - 15, gy - 40, 7, 20);
-    ctx.fillRect(cx + 8, gy - 40, 7, 20);
-    ctx.fillStyle = "#c4856a";
-    ctx.beginPath();
-    ctx.arc(cx, gy - 50, 9, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = "white";
-    ctx.fillRect(cx - 9, gy - 60, 18, 8);
-    ctx.beginPath();
-    ctx.ellipse(cx, gy - 60, 9, 4, 0, Math.PI, 0);
-    ctx.fill();
-  }
-  ctx.restore();
-}
-
-function drawSpeechBubble(
-  ctx: CanvasRenderingContext2D,
-  sx: number,
-  sy: number,
-  text: string,
-) {
-  const maxW = 200;
-  ctx.font = "11px Arial";
-  const lines: string[] = [];
-  const words = text.split(" ");
-  let line = "";
-  for (const w of words) {
-    const test = line ? `${line} ${w}` : w;
-    if (ctx.measureText(test).width > maxW - 16) {
-      lines.push(line);
-      line = w;
-    } else line = test;
-  }
-  if (line) lines.push(line);
-  const lh = 14;
-  const bh = lines.length * lh + 12;
-  const bw = Math.min(
-    maxW,
-    Math.max(...lines.map((l) => ctx.measureText(l).width)) + 20,
-  );
-  const bx = sx - bw / 2;
-  const by = sy - bh;
-  ctx.fillStyle = "rgba(255,255,220,0.95)";
-  ctx.strokeStyle = "#888";
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.roundRect(bx, by, bw, bh, 6);
-  ctx.fill();
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.moveTo(sx - 5, by + bh);
-  ctx.lineTo(sx, by + bh + 8);
-  ctx.lineTo(sx + 5, by + bh);
-  ctx.fillStyle = "rgba(255,255,220,0.95)";
-  ctx.fill();
-  ctx.fillStyle = "#333";
-  ctx.font = "11px Arial";
-  ctx.textAlign = "left";
-  for (let i = 0; i < lines.length; i++)
-    ctx.fillText(lines[i], bx + 8, by + 14 + i * lh);
-}
-
+// ─── Game update ──────────────────────────────────────────────────────────────
 export default function GameCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const stateRef = useRef<GameState | null>(null);
+  const keysRef = useRef<Set<string>>(new Set());
   const [phase, setPhase] = useState<Phase>("menu");
   const [hero, setHero] = useState<HeroName>("humza");
   const [muted, setMuted] = useState(false);
-  const [imgsLoaded, setImgsLoaded] = useState(false);
-  const keysRef = useRef<Set<string>>(new Set());
   const rafRef = useRef<number>(0);
   const lastTimeRef = useRef<number>(0);
   const joystickRef = useRef({ active: false, cx: 0, cy: 0, dx: 0, dy: 0 });
-  const imgsRef = useRef<Record<string, HTMLImageElement | null>>({
-    humza: null,
-    ajay: null,
-    rehman: null,
-    sp_aslam: null,
-    major_iqbal: null,
-    jameel: null,
-    grunt: null,
-  });
-
-  useEffect(() => {
-    const sources: Record<string, string> = {
-      humza: "/assets/generated/humza-realistic-transparent.dim_200x340.png",
-      ajay: "/assets/generated/ajay-realistic-transparent.dim_200x340.png",
-      rehman: "/assets/generated/rehman-realistic-transparent.dim_200x340.png",
-      sp_aslam:
-        "/assets/generated/sp-aslam-realistic-transparent.dim_200x340.png",
-      major_iqbal:
-        "/assets/generated/major-iqbal-realistic-transparent.dim_200x340.png",
-      jameel: "/assets/generated/jameel-realistic-transparent.dim_200x340.png",
-      grunt: "/assets/generated/grunt-realistic-transparent.dim_200x340.png",
-    };
-    let loaded = 0;
-    const total = Object.keys(sources).length;
-    for (const [key, src] of Object.entries(sources)) {
-      const img = new Image();
-      img.src = src;
-      img.onload = () => {
-        imgsRef.current[key] = img;
-        loaded++;
-        if (loaded === total) setImgsLoaded(true);
-      };
-      img.onerror = () => {
-        loaded++;
-        if (loaded === total) setImgsLoaded(true);
-      };
-    }
-  }, []);
 
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
@@ -1007,17 +1149,40 @@ export default function GameCanvas() {
   function update(s: GameState, dt: number) {
     const keys = keysRef.current;
     const vw = window.innerWidth;
+    const vh = window.innerHeight;
     const joy = joystickRef.current;
     let mx = 0;
+    let my = 0;
     if (keys.has("KeyA") || keys.has("ArrowLeft")) mx -= 1;
     if (keys.has("KeyD") || keys.has("ArrowRight")) mx += 1;
-    if (joy.active) mx += joy.dx;
-    mx = Math.max(-1, Math.min(1, mx));
+    if (keys.has("KeyW") || keys.has("ArrowUp")) my -= 1;
+    if (keys.has("KeyS") || keys.has("ArrowDown")) my += 1;
+    if (joy.active) {
+      mx += joy.dx;
+      my += joy.dy;
+    }
+    // Normalize diagonal
+    const len = Math.sqrt(mx * mx + my * my);
+    if (len > 1) {
+      mx /= len;
+      my /= len;
+    }
     s.hvx = mx * MOVE_SPEED;
-    if (mx < 0) s.hFacingLeft = true;
-    if (mx > 0) s.hFacingLeft = false;
-    s.hx = Math.max(0, Math.min(WORLD_W - 40, s.hx + s.hvx * dt));
-    s.cameraX = Math.max(0, Math.min(WORLD_W - vw, s.hx - vw / 2));
+    s.hvy = my * MOVE_SPEED;
+    if (mx !== 0 || my !== 0) s.hAngle = Math.atan2(my, mx);
+    s.hx = Math.max(
+      HERO_RADIUS,
+      Math.min(WORLD_W - HERO_RADIUS, s.hx + s.hvx * dt),
+    );
+    s.hy = Math.max(
+      HERO_RADIUS,
+      Math.min(WORLD_H - HERO_RADIUS, s.hy + s.hvy * dt),
+    );
+
+    // Camera follows hero (centered)
+    s.camX = Math.max(0, Math.min(WORLD_W - vw, s.hx - vw / 2));
+    s.camY = Math.max(0, Math.min(WORLD_H - vh, s.hy - vh / 2));
+
     if (s.screenShake > 0) s.screenShake = Math.max(0, s.screenShake - dt * 8);
     if (s.invincTimer > 0) s.invincTimer = Math.max(0, s.invincTimer - dt);
     if (s.levelSplash > 0) s.levelSplash = Math.max(0, s.levelSplash - dt);
@@ -1035,68 +1200,117 @@ export default function GameCanvas() {
       keys.delete("KeyB");
       throwBomb(s);
     }
+
+    // Auto-aim at nearest enemy when shooting
+    const alive = s.enemies.filter((e) => !e.dead);
+    if ((keys.has("Space") || keys.has("Enter")) && alive.length > 0) {
+      const nearest = alive.reduce((b, e) =>
+        Math.hypot(e.x - s.hx, e.y - s.hy) < Math.hypot(b.x - s.hx, b.y - s.hy)
+          ? e
+          : b,
+      );
+      const nearDist = Math.hypot(nearest.x - s.hx, nearest.y - s.hy);
+      if (nearDist < 400)
+        s.hAngle = Math.atan2(nearest.y - s.hy, nearest.x - s.hx);
+    }
+
     const lsm = 1 + (s.level - 1) * 0.08;
     for (const e of s.enemies) {
       if (e.dead) continue;
       e.shootCooldown = Math.max(0, e.shootCooldown - dt);
       e.alertTimer = Math.max(0, e.alertTimer - dt);
       const dx = s.hx - e.x;
-      const dist = Math.abs(dx);
+      const dy = s.hy - e.y;
+      const dist = Math.hypot(dx, dy);
       const fightDist = e.isBoss ? BOSS_FIGHT_DIST : FIGHT_DIST;
-      const speed = (e.isBoss ? 110 : 150) * lsm;
+      const speed = (e.isBoss ? 100 : 140) * lsm;
       if (dist < fightDist) {
         e.state = "fight";
-        e.vx = e.isBoss ? (dx > 0 ? speed * 0.3 : -speed * 0.3) : 0;
+        const moveRatio = e.isBoss ? 0.25 : 0;
+        e.vx = e.isBoss ? (dx / dist) * speed * moveRatio : 0;
+        e.vy = e.isBoss ? (dy / dist) * speed * moveRatio : 0;
         if (e.shootCooldown <= 0) {
           enemyShoot(s, e);
           e.shootCooldown = e.isBoss ? 0.6 : 1.2 + Math.random();
         }
-        e.alertTimer = 0.5;
+        e.alertTimer = 0.4;
+        e.angle = Math.atan2(dy, dx);
       } else if (dist < FLEE_DIST) {
         e.state = "flee";
-        const fleeDir = dx > 0 ? -1 : 1;
+        const fleeAngle = Math.atan2(-dy, -dx) + (Math.random() - 0.5) * 0.8;
+        e.vx = Math.cos(fleeAngle) * speed * 1.2;
+        e.vy = Math.sin(fleeAngle) * speed * 1.2;
         e.hideX = Math.max(
           50,
-          Math.min(WORLD_W - 50, e.x + fleeDir * (200 + Math.random() * 300)),
+          Math.min(WORLD_W - 50, e.x + Math.cos(fleeAngle) * 250),
         );
-        e.vx = fleeDir * speed * 1.2;
-        e.alertTimer = 0.5;
+        e.hideY = Math.max(
+          50,
+          Math.min(WORLD_H - 50, e.y + Math.sin(fleeAngle) * 250),
+        );
+        e.alertTimer = 0.4;
+        e.angle = fleeAngle + Math.PI;
       } else {
         e.state = "patrol";
-        const dToHide = e.hideX - e.x;
-        if (Math.abs(dToHide) > 20) {
-          e.vx = dToHide > 0 ? speed * 0.4 : -speed * 0.4;
+        const dToHideX = e.hideX - e.x;
+        const dToHideY = e.hideY - e.y;
+        const dToHide = Math.hypot(dToHideX, dToHideY);
+        if (dToHide > 30) {
+          e.vx = (dToHideX / dToHide) * speed * 0.45;
+          e.vy = (dToHideY / dToHide) * speed * 0.45;
+          e.angle = Math.atan2(dToHideY, dToHideX);
         } else {
-          if (Math.random() < 0.008)
+          if (Math.random() < 0.006) {
             e.hideX = 100 + Math.random() * (WORLD_W - 200);
+            e.hideY = 100 + Math.random() * (WORLD_H - 200);
+          }
           e.vx = 0;
+          e.vy = 0;
         }
       }
-      e.facingLeft = e.vx < 0 ? true : e.vx > 0 ? false : dx < 0;
       e.x = Math.max(50, Math.min(WORLD_W - 50, e.x + e.vx * dt));
+      e.y = Math.max(50, Math.min(WORLD_H - 50, e.y + e.vy * dt));
     }
+
+    // NPCs wander
+    for (const npc of s.npcs) {
+      npc.walkTimer -= dt;
+      if (npc.walkTimer <= 0) {
+        npc.vx = (Math.random() - 0.5) * 50;
+        npc.vy = (Math.random() - 0.5) * 50;
+        npc.walkTimer = 2 + Math.random() * 3;
+      }
+      npc.x = Math.max(50, Math.min(WORLD_W - 50, npc.x + npc.vx * dt));
+      npc.y = Math.max(50, Math.min(WORLD_H - 50, npc.y + npc.vy * dt));
+      const dNpc = Math.hypot(s.hx - npc.x, s.hy - npc.y);
+      if (dNpc < 120) {
+        npc.showBubble = true;
+        npc.bubbleTimer = 3;
+      }
+      if (npc.bubbleTimer > 0) {
+        npc.bubbleTimer -= dt;
+        if (npc.bubbleTimer <= 0) npc.showBubble = false;
+      }
+    }
+
+    // Bullets
     for (const b of s.bullets) {
       b.x += b.vx * dt;
       b.y += b.vy * dt;
       b.life -= dt;
     }
-    const groundY = window.innerHeight * GROUND_RATIO;
     for (const b of s.bullets) {
       if (b.life <= 0) continue;
       if (b.fromPlayer) {
         for (const e of s.enemies) {
           if (e.dead) continue;
-          const esx = e.x - s.cameraX;
-          if (Math.abs(b.x - esx) < 35) {
+          if (
+            Math.hypot(b.x - e.x, b.y - e.y) <
+            (e.isBoss ? BOSS_RADIUS : CHAR_RADIUS) + 6
+          ) {
             e.hp -= 20;
             b.life = 0;
-            spawnParticles(
-              s,
-              esx,
-              groundY - (e.isBoss ? BOSS_H : ENEMY_H) / 2,
-              "#ff4400",
-              6,
-            );
+            spawnParticles(s, e.x, e.y, "#ff4400", 6);
             playHit(s.muted);
             if (e.hp <= 0) {
               e.dead = true;
@@ -1104,44 +1318,49 @@ export default function GameCanvas() {
               if (e.isBoss) {
                 s.totalBossesKilled++;
                 playBossAlert(s.muted);
-                spawnParticles(s, esx, groundY - BOSS_H / 2, "#ff8800", 20);
+                spawnParticles(s, e.x, e.y, "#ff8800", 20);
               }
             }
             break;
           }
         }
       } else {
-        const heroSx = s.hx - s.cameraX;
-        if (s.invincTimer <= 0 && Math.abs(b.x - heroSx) < 35) {
+        if (
+          s.invincTimer <= 0 &&
+          Math.hypot(b.x - s.hx, b.y - s.hy) < HERO_RADIUS + 6
+        ) {
           s.hhp -= 15;
           b.life = 0;
           s.invincTimer = 0.5;
           s.screenShake = 0.3;
-          spawnParticles(s, heroSx, groundY - HERO_H / 2, "#ff0000", 5);
+          spawnParticles(s, s.hx, s.hy, "#ff0000", 5);
           playHit(s.muted);
           if (s.hhp <= 0) s.phase = "gameover";
         }
       }
     }
     s.bullets = s.bullets.filter((b) => b.life > 0);
+
+    // Bombs
     for (const bomb of s.bombs) {
       if (bomb.exploded) {
         bomb.explodeTime += dt;
         continue;
       }
       bomb.timer -= dt;
-      bomb.x += (bomb.tx - bomb.x) * dt * 3;
+      bomb.x += (bomb.tx - bomb.x) * dt * 4;
+      bomb.y += (bomb.ty - bomb.y) * dt * 4;
       if (bomb.timer <= 0) {
         bomb.exploded = true;
         bomb.x = bomb.tx;
+        bomb.y = bomb.ty;
         bomb.explodeTime = 0;
         s.screenShake = 0.8;
         playExplosion(s.muted);
-        spawnParticles(s, bomb.tx - s.cameraX, groundY - 20, "#ff6600", 30);
         for (const e of s.enemies) {
           if (e.dead) continue;
-          if (Math.abs(bomb.tx - e.x) < BOMB_RADIUS) {
-            e.hp -= 100;
+          if (Math.hypot(bomb.x - e.x, bomb.y - e.y) < BOMB_RADIUS) {
+            e.hp -= 120;
             if (e.hp <= 0) {
               e.dead = true;
               s.score += e.isBoss ? 500 : 50;
@@ -1150,48 +1369,41 @@ export default function GameCanvas() {
                 playBossAlert(s.muted);
               }
             }
+            spawnParticles(s, e.x, e.y, "#ff6600", 10);
           }
         }
-        for (const bld of s.buildings) {
-          if (Math.abs(bomb.tx - (bld.x + bld.w / 2)) < BOMB_RADIUS * 1.5) {
-            bld.onFire = true;
-            bld.fireTimer = 6;
+        for (const b of s.buildings) {
+          if (
+            Math.hypot(bomb.x - (b.x + b.w / 2), bomb.y - (b.y + b.h / 2)) <
+            BOMB_RADIUS * 1.2
+          ) {
+            b.onFire = true;
+            b.fireTimer = 5;
           }
         }
+        spawnParticles(s, bomb.x, bomb.y, "#ffcc00", 25);
       }
     }
-    s.bombs = s.bombs.filter((b) => !(b.exploded && b.explodeTime > 2));
+    s.bombs = s.bombs.filter((b) => !b.exploded || b.explodeTime < 0.8);
     for (const b of s.buildings) {
       if (b.onFire) {
         b.fireTimer -= dt;
         if (b.fireTimer <= 0) b.onFire = false;
       }
     }
-    for (const npc of s.npcs) {
-      npc.walkTimer -= dt;
-      if (npc.walkTimer <= 0) {
-        npc.vx = (Math.random() - 0.5) * 30;
-        npc.walkTimer = 2 + Math.random() * 3;
-      }
-      npc.x = Math.max(100, Math.min(WORLD_W - 100, npc.x + npc.vx * dt));
-      if (Math.abs(s.hx - npc.x) < 150) {
-        npc.showBubble = true;
-        npc.bubbleTimer = 3;
-      }
-      if (npc.showBubble) {
-        npc.bubbleTimer -= dt;
-        if (npc.bubbleTimer <= 0) npc.showBubble = false;
-      }
-    }
+
+    // Particles
     for (const p of s.particles) {
       p.x += p.vx * dt;
       p.y += p.vy * dt;
       p.life -= dt;
-      p.vy += 200 * dt;
+      p.vy += 60 * dt;
     }
     s.particles = s.particles.filter((p) => p.life > 0);
-    const aliveEnemies = s.enemies.filter((e) => !e.dead);
-    if (aliveEnemies.length === 0 && s.levelSplash <= 0) {
+
+    // Level clear
+    const allDead = s.enemies.filter((e) => !e.dead).length === 0;
+    if (allDead) {
       if (s.level >= MAX_LEVEL) {
         s.phase = "win";
         return;
@@ -1199,9 +1411,12 @@ export default function GameCanvas() {
       s.level++;
       s.levelTitle = LEVEL_TITLES[s.level] ?? `LEVEL ${s.level}`;
       s.levelSplash = 2.5;
-      s.buildings = generateBuildings(getBgTheme(s.level));
-      s.hx = 200;
-      s.cameraX = 0;
+      s.buildings = generateCity(getBgTheme(s.level), s.level);
+      s.npcs = generateNPCs(s.level);
+      s.hx = 180;
+      s.hy = 180;
+      s.camX = 0;
+      s.camY = 0;
       s.hhp = Math.min(s.maxHhp, s.hhp + 40);
       const { enemies, nextId } = spawnLevelEnemies(s.level, s.idCounter);
       s.enemies = enemies;
@@ -1210,7 +1425,7 @@ export default function GameCanvas() {
       s.bombs = [];
       const bossName = BOSS_AT_LEVEL[s.level];
       if (bossName) {
-        s.bossWarning = `\u26A0 BOSS INCOMING: ${bossName.toUpperCase()} \u26A0`;
+        s.bossWarning = `⚠ BOSS INCOMING: ${bossName.toUpperCase()} ⚠`;
         s.bossWarningTimer = 3;
         playBossAlert(s.muted);
       }
@@ -1229,150 +1444,117 @@ export default function GameCanvas() {
     ctx.save();
     if (s.screenShake > 0) {
       ctx.translate(
-        (Math.random() - 0.5) * s.screenShake * 14,
-        (Math.random() - 0.5) * s.screenShake * 14,
+        (Math.random() - 0.5) * s.screenShake * 12,
+        (Math.random() - 0.5) * s.screenShake * 12,
       );
     }
-    const groundY = vh * GROUND_RATIO;
     const theme = getBgTheme(s.level);
-    drawBackground(ctx, vw, vh, groundY, s.cameraX, theme, s.buildings);
+    drawCity(ctx, s.camX, s.camY, vw, vh, theme, s.buildings, s.level);
+
+    // NPCs
     for (const npc of s.npcs) {
-      const nsx = npc.x - s.cameraX;
-      if (nsx < -50 || nsx > vw + 50) continue;
-      drawNPC(ctx, nsx, groundY, npc.type);
-      if (npc.showBubble) drawSpeechBubble(ctx, nsx, groundY - 80, npc.hint);
+      const nx = npc.x - s.camX;
+      const ny = npc.y - s.camY;
+      if (nx < -30 || nx > vw + 30 || ny < -30 || ny > vh + 30) continue;
+      drawNPCTopDown(ctx, nx, ny, npc.type, npc.hint, npc.showBubble);
     }
+
+    // Enemies
     for (const e of s.enemies) {
       if (e.dead) continue;
-      const esx = e.x - s.cameraX;
-      if (esx < -120 || esx > vw + 120) continue;
-      if (e.isBoss) {
-        const bossIdx = BOSS_DEFS.findIndex((b) => b.name === e.name);
-        const imgKeys = ["rehman", "sp_aslam", "major_iqbal", "jameel"];
-        const bossImg = imgsRef.current[imgKeys[bossIdx] ?? ""];
-        const bw = 80;
-        const bh = BOSS_H * 1.3;
-        if (bossImg) {
-          ctx.save();
-          if (e.facingLeft) {
-            ctx.scale(-1, 1);
-            ctx.drawImage(bossImg, -(esx + bw / 2), groundY - bh, bw, bh);
-          } else {
-            ctx.drawImage(bossImg, esx - bw / 2, groundY - bh, bw, bh);
-          }
-          ctx.restore();
-        } else {
-          drawCharFallback(ctx, esx, groundY, e.facingLeft, false, true);
-        }
-        ctx.fillStyle = "rgba(0,0,0,0.6)";
-        ctx.fillRect(esx - 40, groundY - bh - 14, 80, 8);
-        ctx.fillStyle = "#ff2200";
-        ctx.fillRect(esx - 40, groundY - bh - 14, 80 * (e.hp / e.maxHp), 8);
-        ctx.strokeStyle = "#ffd700";
-        ctx.lineWidth = 1;
-        ctx.strokeRect(esx - 40, groundY - bh - 14, 80, 8);
+      const esx = e.x - s.camX;
+      const esy = e.y - s.camY;
+      if (esx < -80 || esx > vw + 80 || esy < -80 || esy > vh + 80) continue;
+      const r = e.isBoss ? BOSS_RADIUS : CHAR_RADIUS;
+      drawEnemyTopDown(
+        ctx,
+        esx,
+        esy,
+        e.angle,
+        e.color,
+        e.accentColor,
+        e.isBoss,
+        r,
+        e.hp,
+        e.maxHp,
+        e.name,
+        e.alertTimer,
+      );
+      // Boss dialog
+      if (e.isBoss && e.alertTimer > 0) {
+        const dialog = BOSS_DIALOG[e.name] ?? "You won't beat me!";
+        const bw = Math.max(140, dialog.length * 6.5);
+        const bx = esx - bw / 2;
+        const by = esy - r - 36;
+        ctx.fillStyle = "rgba(200,0,0,0.85)";
+        ctx.beginPath();
+        ctx.roundRect(bx, by, bw, 18, 4);
+        ctx.fill();
         ctx.fillStyle = "white";
         ctx.font = "bold 9px Arial";
         ctx.textAlign = "center";
-        ctx.fillText(e.name, esx, groundY - bh - 18);
-        if (e.alertTimer > 0 && bossIdx >= 0)
-          drawSpeechBubble(
-            ctx,
-            esx,
-            groundY - bh - 22,
-            BOSS_DIALOG[bossIdx] ?? "You won't beat me!",
-          );
-      } else {
-        const gruntImg = imgsRef.current.grunt;
-        const ew = 48;
-        const eh = ENEMY_H;
-        if (gruntImg) {
-          ctx.save();
-          if (e.facingLeft) {
-            ctx.scale(-1, 1);
-            ctx.drawImage(gruntImg, -(esx + ew / 2), groundY - eh, ew, eh);
-          } else {
-            ctx.drawImage(gruntImg, esx - ew / 2, groundY - eh, ew, eh);
-          }
-          ctx.restore();
-        } else {
-          drawCharFallback(ctx, esx, groundY, e.facingLeft, false, false);
-        }
-        if (e.alertTimer > 0) {
-          ctx.fillStyle = "#ff0";
-          ctx.font = "14px Arial";
-          ctx.textAlign = "center";
-          ctx.fillText("!", esx, groundY - ENEMY_H - 10);
-        }
+        ctx.fillText(dialog, esx, by + 13);
       }
     }
-    const heroSx = s.hx - s.cameraX;
+
+    // Hero
+    const heroSx = s.hx - s.camX;
+    const heroSy = s.hy - s.camY;
     const heroAlpha =
       s.invincTimer > 0 ? (Math.sin(s.invincTimer * 20) > 0 ? 0.4 : 1) : 1;
-    const heroImg = imgsRef.current[s.hero === "humza" ? "humza" : "ajay"];
-    const hw = 80;
-    const hh = HERO_H * 1.2;
-    if (heroImg) {
-      ctx.save();
-      ctx.globalAlpha = heroAlpha;
-      if (s.hFacingLeft) {
-        ctx.scale(-1, 1);
-        ctx.drawImage(heroImg, -(heroSx + hw / 2), groundY - hh, hw, hh);
-      } else {
-        ctx.drawImage(heroImg, heroSx - hw / 2, groundY - hh, hw, hh);
-      }
-      ctx.restore();
-    } else {
-      drawCharFallback(
-        ctx,
-        heroSx,
-        groundY,
-        s.hFacingLeft,
-        true,
-        false,
-        heroAlpha,
-      );
-    }
+    drawHeroTopDown(
+      ctx,
+      heroSx,
+      heroSy,
+      s.hAngle,
+      s.hero === "humza",
+      heroAlpha,
+      HERO_RADIUS,
+    );
+
+    // Bullets
     for (const b of s.bullets) {
+      const bsx = b.x - s.camX;
+      const bsy = b.y - s.camY;
       ctx.beginPath();
-      ctx.arc(b.x, b.y, 5, 0, Math.PI * 2);
+      ctx.arc(bsx, bsy, 5, 0, Math.PI * 2);
       ctx.fillStyle = b.fromPlayer ? "#ffdd00" : "#ff4400";
       ctx.fill();
       ctx.beginPath();
-      ctx.arc(b.x, b.y, 2.5, 0, Math.PI * 2);
+      ctx.arc(bsx, bsy, 2.5, 0, Math.PI * 2);
       ctx.fillStyle = "white";
       ctx.fill();
     }
+
+    // Bombs
     for (const bomb of s.bombs) {
-      const bsx = bomb.x - s.cameraX;
+      const bsx = bomb.x - s.camX;
+      const bsy = bomb.y - s.camY;
       if (!bomb.exploded) {
-        ctx.font = "18px Arial";
+        ctx.font = "20px Arial";
         ctx.textAlign = "center";
-        ctx.fillText("\uD83D\uDCA3", bsx, groundY - 10);
-      } else if (bomb.explodeTime < 0.5) {
-        const r = BOMB_RADIUS * (bomb.explodeTime / 0.5);
-        const alpha = 1 - bomb.explodeTime / 0.5;
-        const eg = ctx.createRadialGradient(
-          bsx,
-          groundY - 20,
-          0,
-          bsx,
-          groundY - 20,
-          r,
-        );
+        ctx.fillText("💣", bsx, bsy);
+      } else if (bomb.explodeTime < 0.6) {
+        const r = BOMB_RADIUS * (bomb.explodeTime / 0.6);
+        const alpha = 1 - bomb.explodeTime / 0.6;
+        const eg = ctx.createRadialGradient(bsx, bsy, 0, bsx, bsy, r);
         eg.addColorStop(0, `rgba(255,255,150,${alpha})`);
         eg.addColorStop(0.4, `rgba(255,100,0,${alpha * 0.8})`);
         eg.addColorStop(1, "rgba(255,0,0,0)");
         ctx.beginPath();
-        ctx.arc(bsx, groundY - 20, r, 0, Math.PI * 2);
+        ctx.arc(bsx, bsy, r, 0, Math.PI * 2);
         ctx.fillStyle = eg;
         ctx.fill();
       }
     }
+
+    // Particles
     for (const p of s.particles) {
+      const psx = p.x - s.camX;
+      const psy = p.y - s.camY;
       const alpha = p.life / p.maxLife;
       ctx.beginPath();
-      ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+      ctx.arc(psx, psy, p.size, 0, Math.PI * 2);
       ctx.fillStyle =
         p.color +
         Math.floor(alpha * 255)
@@ -1381,12 +1563,14 @@ export default function GameCanvas() {
       ctx.fill();
     }
     ctx.restore();
+
     drawHUD(ctx, vw, vh, s);
     drawMinimap(ctx, vw, vh, s);
+
     if (s.levelSplash > 0) {
       const alpha = Math.min(s.levelSplash, 1);
       ctx.globalAlpha = alpha;
-      ctx.fillStyle = "rgba(0,0,0,0.8)";
+      ctx.fillStyle = "rgba(0,0,0,0.82)";
       ctx.fillRect(0, vh / 2 - 80, vw, 160);
       ctx.fillStyle = "#ffd700";
       ctx.font = `bold ${Math.floor(vw * 0.09)}px serif`;
@@ -1394,7 +1578,7 @@ export default function GameCanvas() {
       ctx.shadowBlur = 30;
       ctx.shadowColor = "#ff8800";
       ctx.fillText(`LEVEL ${s.level}`, vw / 2, vh / 2 - 10);
-      ctx.font = `bold ${Math.floor(vw * 0.038)}px serif`;
+      ctx.font = `bold ${Math.floor(vw * 0.036)}px serif`;
       ctx.fillStyle = "#ff9900";
       ctx.shadowBlur = 0;
       ctx.fillText(s.levelTitle, vw / 2, vh / 2 + 40);
@@ -1403,23 +1587,23 @@ export default function GameCanvas() {
     if (s.bossWarningTimer > 0) {
       const alpha = Math.min(s.bossWarningTimer, 1);
       ctx.globalAlpha = alpha;
-      ctx.fillStyle = "rgba(100,0,0,0.88)";
-      ctx.fillRect(0, vh * 0.15, vw, 60);
+      ctx.fillStyle = "rgba(100,0,0,0.9)";
+      ctx.fillRect(0, vh * 0.14, vw, 60);
       ctx.fillStyle = "#ff5555";
-      ctx.font = `bold ${Math.floor(vw * 0.048)}px serif`;
+      ctx.font = `bold ${Math.floor(vw * 0.046)}px serif`;
       ctx.textAlign = "center";
       ctx.shadowBlur = 20;
       ctx.shadowColor = "#ff0000";
-      ctx.fillText(s.bossWarning, vw / 2, vh * 0.15 + 42);
+      ctx.fillText(s.bossWarning, vw / 2, vh * 0.14 + 42);
       ctx.shadowBlur = 0;
       ctx.globalAlpha = 1;
     }
-    ctx.globalAlpha = 0.18;
+    ctx.globalAlpha = 0.15;
     ctx.fillStyle = "white";
     ctx.font = "11px Arial";
     ctx.textAlign = "center";
     ctx.fillText(
-      "\u00A9 Priyanka Sharma | priyankadsharma11@gmail.com",
+      "© Priyanka Sharma | priyankadsharma11@gmail.com",
       vw / 2,
       vh / 2,
     );
@@ -1432,7 +1616,7 @@ export default function GameCanvas() {
     vh: number,
     s: GameState,
   ) {
-    ctx.fillStyle = "rgba(0,0,0,0.72)";
+    ctx.fillStyle = "rgba(0,0,0,0.75)";
     ctx.fillRect(0, 0, vw, 56);
     ctx.fillStyle = "#ffd700";
     ctx.font = "bold 12px serif";
@@ -1463,11 +1647,7 @@ export default function GameCanvas() {
     ctx.shadowBlur = 0;
     ctx.fillStyle = "#ff9900";
     ctx.font = "11px Arial";
-    ctx.fillText(
-      `LEVEL ${s.level}/${MAX_LEVEL} \u2014 ${s.levelTitle}`,
-      vw / 2,
-      38,
-    );
+    ctx.fillText(`LEVEL ${s.level}/${MAX_LEVEL} — ${s.levelTitle}`, vw / 2, 38);
     ctx.textAlign = "right";
     ctx.fillStyle = "white";
     ctx.font = "bold 11px Arial";
@@ -1477,14 +1657,14 @@ export default function GameCanvas() {
       20,
     );
     ctx.fillStyle = "#ffd700";
-    ctx.fillText(`\uD83D\uDCA3 x${s.hBombs}  Score: ${s.score}`, vw - 10, 38);
+    ctx.fillText(`💣 x${s.hBombs}  Score: ${s.score}`, vw - 10, 38);
     ctx.fillStyle = "rgba(0,0,0,0.85)";
     ctx.fillRect(0, vh - 22, vw, 22);
     ctx.fillStyle = "#ffd700";
     ctx.font = "9px Arial";
     ctx.textAlign = "center";
     ctx.fillText(
-      "\u00A9 2026 Dhurandhar | Priyanka Sharma | priyankadsharma11@gmail.com | All Rights Reserved",
+      "© 2026 Dhurandhar | Priyanka Sharma | priyankadsharma11@gmail.com | All Rights Reserved",
       vw / 2,
       vh - 6,
     );
@@ -1496,19 +1676,26 @@ export default function GameCanvas() {
     vh: number,
     s: GameState,
   ) {
-    const mm = { x: vw - 158, y: vh - 180, w: 148, h: 132 };
+    const mm = { x: vw - 148, y: vh - 172, w: 138, h: 120 };
     ctx.fillStyle = "rgba(0,0,0,0.72)";
     ctx.fillRect(mm.x, mm.y, mm.w, mm.h);
     ctx.strokeStyle = "#ffd700";
     ctx.lineWidth = 1;
     ctx.strokeRect(mm.x, mm.y, mm.w, mm.h);
-    const toMM = (wx: number) => ({
+    const toMM = (wx: number, wy: number) => ({
       x: mm.x + (wx / WORLD_W) * mm.w,
-      y: mm.y + mm.h / 2,
+      y: mm.y + (wy / WORLD_H) * mm.h,
     });
+    // Buildings on minimap
+    ctx.fillStyle = "rgba(120,100,60,0.5)";
+    for (const b of s.buildings) {
+      const p = toMM(b.x, b.y);
+      ctx.fillRect(p.x, p.y, (b.w / WORLD_W) * mm.w, (b.h / WORLD_H) * mm.h);
+    }
+    // Enemies
     for (const e of s.enemies) {
       if (e.dead) continue;
-      const p = toMM(e.x);
+      const p = toMM(e.x, e.y);
       if (e.isBoss) {
         const flash = Math.floor(performance.now() / 300) % 2 === 0;
         ctx.beginPath();
@@ -1522,7 +1709,8 @@ export default function GameCanvas() {
         ctx.fill();
       }
     }
-    const pp = toMM(s.hx);
+    // Hero
+    const pp = toMM(s.hx, s.hy);
     ctx.beginPath();
     ctx.arc(pp.x, pp.y, 4, 0, Math.PI * 2);
     ctx.fillStyle = "#4488ff";
@@ -1552,8 +1740,8 @@ export default function GameCanvas() {
     const t = e.changedTouches[0];
     const dx = t.clientX - joystickRef.current.cx;
     const dy = t.clientY - joystickRef.current.cy;
+    const maxR = 42;
     const len = Math.sqrt(dx * dx + dy * dy);
-    const maxR = 40;
     joystickRef.current.dx = len > maxR ? dx / len : dx / maxR;
     joystickRef.current.dy = len > maxR ? dy / len : dy / maxR;
   }
@@ -1573,9 +1761,6 @@ export default function GameCanvas() {
     if (stateRef.current.muted) stopDrone();
     else startDrone(false);
   }
-  function handleCanvasTap(e: React.MouseEvent<HTMLCanvasElement>) {
-    if (e.clientX > window.innerWidth - 50 && e.clientY < 70) handleMuteBtn();
-  }
 
   useEffect(() => {
     if (phase !== "menu" && phase !== "win" && phase !== "gameover") return;
@@ -1588,19 +1773,23 @@ export default function GameCanvas() {
     const dpr = window.devicePixelRatio || 1;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, vw, vh);
+    // Draw city bg for menu
     const bg = ctx.createLinearGradient(0, 0, 0, vh);
-    bg.addColorStop(0, "#1a1050");
-    bg.addColorStop(0.5, "#c87030");
+    bg.addColorStop(0, "#0a1530");
+    bg.addColorStop(0.4, "#c87030");
     bg.addColorStop(1, "#3a2010");
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, vw, vh);
-    ctx.fillStyle = "#2a1808";
-    for (let i = 0; i < 16; i++) {
-      const bx = i * (vw / 16);
-      const bh = 80 + (i % 5) * 40;
-      ctx.fillRect(bx, vh * 0.6 - bh, vw / 16 - 2, bh + vh * 0.4);
-    }
-    ctx.fillStyle = "rgba(0,0,0,0.45)";
+    // City blocks
+    ctx.fillStyle = "#888070";
+    for (let i = 0; i < 6; i++)
+      for (let j = 0; j < 4; j++) {
+        const bw = vw / 7;
+        const bh = vh / 5;
+        ctx.fillStyle = j % 2 === 0 ? "#c0a870" : "#9a7848";
+        ctx.fillRect(i * (bw + 14) + 7, j * (bh + 12) + 6, bw, bh);
+      }
+    ctx.fillStyle = "rgba(0,0,0,0.5)";
     ctx.fillRect(0, 0, vw, vh);
     if (phase === "menu") {
       ctx.fillStyle = "#ffd700";
@@ -1611,40 +1800,32 @@ export default function GameCanvas() {
       ctx.fillText("DHURANDHAR", vw / 2, vh * 0.28);
       ctx.shadowBlur = 0;
       ctx.fillStyle = "#ff9900";
-      ctx.font = `${Math.floor(vw * 0.025)}px serif`;
+      ctx.font = `${Math.floor(vw * 0.024)}px serif`;
+      ctx.fillText("Save the Country — 20 Levels of Battle", vw / 2, vh * 0.36);
+      ctx.fillStyle = "rgba(255,255,255,0.5)";
+      ctx.font = "12px Arial";
       ctx.fillText(
-        "Save the Country \u2014 20 Levels of Battle",
-        vw / 2,
-        vh * 0.36,
-      );
-      ctx.fillStyle = "rgba(255,255,255,0.6)";
-      ctx.font = "13px Arial";
-      ctx.fillText(
-        "\u00A9 2026 Priyanka Sharma | priyankadsharma11@gmail.com",
+        "© 2026 Priyanka Sharma | priyankadsharma11@gmail.com",
         vw / 2,
         vh * 0.42,
       );
     } else if (phase === "win") {
       ctx.fillStyle = "#ffd700";
-      ctx.font = `bold ${Math.floor(vw * 0.07)}px serif`;
+      ctx.font = `bold ${Math.floor(vw * 0.065)}px serif`;
       ctx.textAlign = "center";
       ctx.shadowBlur = 30;
       ctx.shadowColor = "#ff8800";
-      ctx.fillText("DHURANDHAR COMPLETE!", vw / 2, vh * 0.27);
+      ctx.fillText("DHURANDHAR COMPLETE! 🏆", vw / 2, vh * 0.27);
       ctx.shadowBlur = 0;
       ctx.fillStyle = "#00ff88";
-      ctx.font = `${Math.floor(vw * 0.038)}px serif`;
-      ctx.fillText(
-        "Country Saved! All 4 Villains Defeated!",
-        vw / 2,
-        vh * 0.38,
-      );
+      ctx.font = `${Math.floor(vw * 0.035)}px serif`;
+      ctx.fillText("Country Saved! All Villains Defeated!", vw / 2, vh * 0.38);
       const ss = stateRef.current;
       if (ss) {
         ctx.fillStyle = "white";
         ctx.font = "17px Arial";
         ctx.fillText(
-          `Final Score: ${ss.score}  |  Bosses: ${ss.totalBossesKilled}`,
+          `Final Score: ${ss.score}  |  Bosses Killed: ${ss.totalBossesKilled}`,
           vw / 2,
           vh * 0.48,
         );
@@ -1667,7 +1848,7 @@ export default function GameCanvas() {
     ctx.font = "9px Arial";
     ctx.textAlign = "center";
     ctx.fillText(
-      "\u00A9 2026 Dhurandhar | Priyanka Sharma | priyankadsharma11@gmail.com | All Rights Reserved",
+      "© 2026 Dhurandhar | Priyanka Sharma | priyankadsharma11@gmail.com | All Rights Reserved",
       vw / 2,
       vh - 6,
     );
@@ -1678,54 +1859,48 @@ export default function GameCanvas() {
       <canvas
         ref={canvasRef}
         className="block w-full h-full"
-        onClick={handleCanvasTap}
-        onKeyDown={() => {}}
         style={{ touchAction: "none" }}
       />
-      {!imgsLoaded && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 z-50">
-          <div className="text-yellow-400 font-bold text-2xl animate-pulse">
-            Loading Characters...
-          </div>
-          <div className="text-yellow-600 text-sm mt-2">
-            Preparing Dhurandhar
-          </div>
-        </div>
-      )}
-      {phase === "menu" && imgsLoaded && (
+      {phase === "menu" && (
         <div className="absolute inset-0 flex flex-col items-center justify-end pb-14 pointer-events-none">
           <div className="pointer-events-auto flex flex-col items-center gap-5">
             <div className="flex gap-4">
               <button
                 type="button"
-                data-ocid="game.hero_humza.toggle"
                 onClick={() => setHero("humza")}
-                className={`px-5 py-3 rounded-lg font-bold text-base transition-all border-2 ${hero === "humza" ? "bg-yellow-500 text-black border-yellow-300 scale-105" : "bg-black/60 text-yellow-400 border-yellow-600 hover:bg-black/80"}`}
+                className={`px-5 py-3 rounded-lg font-bold text-base transition-all border-2 ${
+                  hero === "humza"
+                    ? "bg-yellow-500 text-black border-yellow-300 scale-105"
+                    : "bg-black/60 text-yellow-400 border-yellow-600"
+                }`}
               >
                 Humza Ali Mazari
               </button>
               <button
                 type="button"
-                data-ocid="game.hero_ajay.toggle"
                 onClick={() => setHero("ajay")}
-                className={`px-5 py-3 rounded-lg font-bold text-base transition-all border-2 ${hero === "ajay" ? "bg-yellow-500 text-black border-yellow-300 scale-105" : "bg-black/60 text-yellow-400 border-yellow-600 hover:bg-black/80"}`}
+                className={`px-5 py-3 rounded-lg font-bold text-base transition-all border-2 ${
+                  hero === "ajay"
+                    ? "bg-yellow-500 text-black border-yellow-300 scale-105"
+                    : "bg-black/60 text-yellow-400 border-yellow-600"
+                }`}
               >
                 Ajay Sanyal
               </button>
             </div>
             <button
               type="button"
-              data-ocid="game.start.primary_button"
               onClick={() => startGame(hero)}
               className="px-12 py-4 bg-gradient-to-b from-yellow-400 to-orange-600 text-black font-black text-2xl rounded-xl shadow-2xl hover:from-yellow-300 active:scale-95 transition-all uppercase tracking-widest"
             >
               START GAME
             </button>
             <p className="text-yellow-600 text-sm text-center">
-              A/D or Arrow Keys to move \u2022 Space to fire \u2022 B for bomb
+              WASD / Arrows to move in all directions • Space to fire • B for
+              bomb
               <br />
               <span className="text-yellow-500">
-                20 Levels \u2022 4 Bosses \u2022 Save the Country!
+                20 Levels • 4 Bosses • Major Iqbal is the Final Boss!
               </span>
             </p>
           </div>
@@ -1735,7 +1910,6 @@ export default function GameCanvas() {
         <div className="absolute inset-0 flex flex-col items-center justify-end pb-20 pointer-events-none">
           <button
             type="button"
-            data-ocid="game.restart.primary_button"
             onClick={() => {
               setPhase("menu");
               stateRef.current = null;
@@ -1749,7 +1923,7 @@ export default function GameCanvas() {
       {phase === "playing" && (
         <>
           <div
-            className="absolute bottom-10 left-6 w-28 h-28 rounded-full border-2 border-yellow-500/40 bg-black/30 flex items-center justify-center"
+            className="absolute bottom-10 left-6 w-28 h-28 rounded-full border-2 border-yellow-500/40 bg-black/30 flex items-center justify-center select-none"
             onTouchStart={handleJoystickStart}
             onTouchMove={handleJoystickMove}
             onTouchEnd={handleJoystickEnd}
@@ -1760,22 +1934,22 @@ export default function GameCanvas() {
           <div className="absolute bottom-10 right-4 flex flex-col gap-3">
             <button
               type="button"
-              data-ocid="game.bomb.primary_button"
               onTouchStart={(e) => {
                 e.preventDefault();
                 handleBombBtn();
               }}
+              onClick={handleBombBtn}
               className="w-16 h-16 rounded-full bg-orange-700/80 border-2 border-orange-400 text-white font-bold text-2xl flex items-center justify-center active:scale-90"
             >
-              \uD83D\uDCA3
+              💣
             </button>
             <button
               type="button"
-              data-ocid="game.fire.primary_button"
               onTouchStart={(e) => {
                 e.preventDefault();
                 handleFireBtn();
               }}
+              onClick={handleFireBtn}
               className="w-20 h-20 rounded-full bg-red-700/80 border-2 border-red-400 text-white font-black text-lg flex items-center justify-center active:scale-90"
             >
               FIRE
@@ -1783,11 +1957,10 @@ export default function GameCanvas() {
           </div>
           <button
             type="button"
-            data-ocid="game.mute.toggle"
             onClick={handleMuteBtn}
             className="absolute top-14 right-2 w-9 h-9 bg-black/50 rounded-full text-lg flex items-center justify-center"
           >
-            {muted ? "\uD83D\uDD07" : "\uD83D\uDD0A"}
+            {muted ? "🔇" : "🔊"}
           </button>
         </>
       )}
