@@ -121,12 +121,12 @@ interface GameState {
 
 const WORLD_W = 3000;
 const WORLD_H = 1800;
-const HERO_W = 80;
-const HERO_H = 136;
-const ENEMY_W = 40;
-const ENEMY_H = 68;
-const BOSS_W = 56;
-const BOSS_H = 95;
+const HERO_W = 100;
+const HERO_H = 170;
+const ENEMY_W = 52;
+const ENEMY_H = 88;
+const BOSS_W = 72;
+const BOSS_H = 122;
 const FLEE_DIST = 300;
 const FIGHT_DIST = 120;
 const BOSS_FIGHT_DIST = 200;
@@ -511,8 +511,11 @@ export default function GameCanvas() {
     const resize = () => {
       const c = canvasRef.current;
       if (!c) return;
-      c.width = window.innerWidth;
-      c.height = window.innerHeight;
+      const dpr = window.devicePixelRatio || 1;
+      c.width = Math.floor(window.innerWidth * dpr);
+      c.height = Math.floor(window.innerHeight * dpr);
+      c.style.width = `${window.innerWidth}px`;
+      c.style.height = `${window.innerHeight}px`;
     };
     resize();
     window.addEventListener("resize", resize);
@@ -549,8 +552,8 @@ export default function GameCanvas() {
       update(stateRef.current, dt);
       render(
         ctx,
-        canvas.width,
-        canvas.height,
+        window.innerWidth,
+        window.innerHeight,
         stateRef.current,
         imagesRef.current,
       );
@@ -1001,6 +1004,12 @@ export default function GameCanvas() {
     s: GameState,
     imgs: Record<string, HTMLImageElement>,
   ) {
+    const dpr = window.devicePixelRatio || 1;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.imageSmoothingEnabled = true;
+    (
+      ctx as CanvasRenderingContext2D & { imageSmoothingQuality: string }
+    ).imageSmoothingQuality = "high";
     ctx.clearRect(0, 0, vw, vh);
 
     // Screen shake offset
@@ -1012,68 +1021,59 @@ export default function GameCanvas() {
     ctx.save();
     ctx.translate(shakeX, shakeY);
 
-    // Sky gradient (shifts red at high levels)
+    // Sky gradient - Version 16 style warm amber/dusk city
     const levelRatio = Math.min((s.level - 1) / 6, 1);
-    const skyR = Math.floor(30 + levelRatio * 120);
-    const skyG = Math.floor(50 - levelRatio * 30);
-    const skyB = Math.floor(100 - levelRatio * 80);
-    const horR = Math.floor(180 + levelRatio * 60);
-    const horG = Math.floor(120 - levelRatio * 80);
-    const horB = Math.floor(80 - levelRatio * 60);
+    // Warm amber dusk sky transitioning to blood red at war levels
     const skyGrad = ctx.createLinearGradient(0, 0, 0, vh * GROUND_Y_RATIO);
-    skyGrad.addColorStop(0, `rgb(${skyR},${skyG},${skyB})`);
-    skyGrad.addColorStop(1, `rgb(${horR},${horG},${horB})`);
+    if (levelRatio < 0.5) {
+      // Early levels: warm golden dusk
+      skyGrad.addColorStop(
+        0,
+        `rgb(${Math.floor(60 + levelRatio * 100)},${Math.floor(80 - levelRatio * 40)},${Math.floor(140 - levelRatio * 120)})`,
+      );
+      skyGrad.addColorStop(
+        0.6,
+        `rgb(${Math.floor(220 + levelRatio * 20)},${Math.floor(140 - levelRatio * 60)},${Math.floor(60 - levelRatio * 40)})`,
+      );
+      skyGrad.addColorStop(
+        1,
+        `rgb(${Math.floor(255)},${Math.floor(180 - levelRatio * 80)},${Math.floor(80 - levelRatio * 60)})`,
+      );
+    } else {
+      // War levels: blood red/crimson
+      const w = (levelRatio - 0.5) * 2;
+      skyGrad.addColorStop(
+        0,
+        `rgb(${Math.floor(160 + w * 60)},${Math.floor(40 - w * 30)},${Math.floor(20)})`,
+      );
+      skyGrad.addColorStop(
+        1,
+        `rgb(${Math.floor(230 + w * 25)},${Math.floor(80 - w * 50)},${Math.floor(20)})`,
+      );
+    }
     ctx.fillStyle = skyGrad;
     ctx.fillRect(0, 0, vw, vh * GROUND_Y_RATIO);
 
-    // City background (parallax 20%)
-    const cityImg = imgs.cityBg;
-    const cityImgW = cityImg?.naturalWidth > 0 ? cityImg.naturalWidth : 1920;
-    const cityH = vh * GROUND_Y_RATIO;
-    const bgX = -(s.cameraX * 0.2) % cityImgW;
-    if (cityImg?.complete && cityImg.naturalWidth > 0) {
-      ctx.drawImage(cityImg, bgX, 0, cityImgW, cityH);
-      ctx.drawImage(cityImg, bgX + cityImgW, 0, cityImgW, cityH);
-      ctx.drawImage(cityImg, bgX - cityImgW, 0, cityImgW, cityH);
-    } else {
-      // Fallback city
-      drawFallbackCity(ctx, vw, vh, s.cameraX);
-    }
+    // Draw Version 16 style parallax city buildings (3 layers)
+    drawV16City(ctx, vw, vh, s.cameraX, levelRatio);
 
-    // Ground (parallax 60%)
-    const groundImg = imgs.militaryBase;
-    const groundImgW =
-      groundImg?.naturalWidth > 0 ? groundImg.naturalWidth : 1920;
-    const groundH = vh * (1 - GROUND_Y_RATIO);
+    // Ground - warm sandy city road
     const groundY = vh * GROUND_Y_RATIO;
-    const groundX = -(s.cameraX * 0.6) % groundImgW;
-    if (groundImg?.complete && groundImg.naturalWidth > 0) {
-      ctx.drawImage(groundImg, groundX, groundY, groundImgW, groundH);
-      ctx.drawImage(
-        groundImg,
-        groundX + groundImgW,
-        groundY,
-        groundImgW,
-        groundH,
-      );
-      ctx.drawImage(
-        groundImg,
-        groundX - groundImgW,
-        groundY,
-        groundImgW,
-        groundH,
-      );
-    } else {
-      // Fallback ground
-      const gGrad = ctx.createLinearGradient(0, groundY, 0, vh);
-      gGrad.addColorStop(0, "#5a4a30");
-      gGrad.addColorStop(1, "#3a2a18");
-      ctx.fillStyle = gGrad;
-      ctx.fillRect(0, groundY, vw, groundH);
-    }
-
-    // Parked cars (decorative, fixed screen positions)
-    drawParkedCars(ctx, vw, vh);
+    const groundH = vh * (1 - GROUND_Y_RATIO);
+    const gGrad = ctx.createLinearGradient(0, groundY, 0, vh);
+    gGrad.addColorStop(0, levelRatio > 0.5 ? "#4a3020" : "#b8965a");
+    gGrad.addColorStop(1, levelRatio > 0.5 ? "#2a1808" : "#8a6830");
+    ctx.fillStyle = gGrad;
+    ctx.fillRect(0, groundY, vw, groundH);
+    // Road markings
+    ctx.strokeStyle = "rgba(255,220,100,0.25)";
+    ctx.lineWidth = 3;
+    ctx.setLineDash([40, 30]);
+    ctx.beginPath();
+    ctx.moveTo(0, groundY + groundH * 0.35);
+    ctx.lineTo(vw, groundY + groundH * 0.35);
+    ctx.stroke();
+    ctx.setLineDash([]);
 
     // Buildings (world objects)
     for (const b of s.buildings) {
@@ -1563,47 +1563,98 @@ export default function GameCanvas() {
     }
   }
 
-  function drawFallbackCity(
+  function drawV16City(
     ctx: CanvasRenderingContext2D,
     vw: number,
     vh: number,
     camX: number,
-  ) {
-    const bldColors = ["#c8a060", "#b08050", "#d4a870"];
-    for (let i = 0; i < 12; i++) {
-      const bx = ((i * 180 - camX * 0.2) % (vw + 200)) - 100;
-      const bh = 80 + (i % 3) * 60;
-      ctx.fillStyle = bldColors[i % bldColors.length];
-      ctx.fillRect(bx, vh * GROUND_Y_RATIO - bh, 160, bh);
-    }
-  }
-
-  function drawParkedCars(
-    ctx: CanvasRenderingContext2D,
-    vw: number,
-    vh: number,
+    levelRatio: number,
   ) {
     const groundY = vh * GROUND_Y_RATIO;
-    const carPositions = [vw * 0.1, vw * 0.3, vw * 0.65, vw * 0.85];
-    const carColors = ["#2244aa", "#aa2222", "#228822", "#888822"];
-    for (let i = 0; i < 4; i++) {
-      const cx = carPositions[i];
-      const cy = groundY - 2;
-      ctx.fillStyle = carColors[i];
-      ctx.fillRect(cx - 35, cy - 20, 70, 20);
-      ctx.fillStyle = carColors[i];
-      ctx.fillRect(cx - 25, cy - 34, 50, 16);
-      ctx.fillStyle = "rgba(180,220,255,0.5)";
-      ctx.fillRect(cx - 22, cy - 32, 20, 12);
-      ctx.fillRect(cx + 2, cy - 32, 20, 12);
-      ctx.fillStyle = "#111";
-      ctx.beginPath();
-      ctx.arc(cx - 22, cy, 8, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.beginPath();
-      ctx.arc(cx + 22, cy, 8, 0, Math.PI * 2);
-      ctx.fill();
+    // Layer 1 - Far background buildings (slowest parallax)
+    const farColors =
+      levelRatio > 0.5
+        ? ["#5a2010", "#4a1808", "#6a2818"]
+        : ["#c8a060", "#b89050", "#d4b870"];
+    for (let i = 0; i < 14; i++) {
+      const bx =
+        ((((i * 170 - camX * 0.08) % (vw + 200)) + vw + 200) % (vw + 200)) -
+        100;
+      const bh = 100 + (i % 4) * 50;
+      ctx.fillStyle = farColors[i % farColors.length];
+      ctx.fillRect(bx, groundY - bh, 150, bh);
+      // Roof detail
+      ctx.fillStyle = "rgba(0,0,0,0.2)";
+      ctx.fillRect(bx, groundY - bh, 150, 8);
+      // Windows
+      ctx.fillStyle =
+        levelRatio > 0.5 ? "rgba(255,100,0,0.4)" : "rgba(255,240,180,0.5)";
+      for (let wy = groundY - bh + 16; wy < groundY - 16; wy += 22) {
+        for (let wx = bx + 10; wx < bx + 140; wx += 24) {
+          ctx.fillRect(wx, wy, 14, 14);
+        }
+      }
     }
+    // Layer 2 - Mid buildings (medium parallax)
+    const midColors =
+      levelRatio > 0.5
+        ? ["#7a3020", "#6a2010", "#8a3828"]
+        : ["#e8b870", "#d09858", "#f0c880"];
+    for (let i = 0; i < 10; i++) {
+      const bx =
+        ((((i * 220 + 80 - camX * 0.15) % (vw + 250)) + vw + 250) %
+          (vw + 250)) -
+        125;
+      const bh = 130 + (i % 3) * 70;
+      ctx.fillStyle = midColors[i % midColors.length];
+      ctx.fillRect(bx, groundY - bh, 180, bh);
+      // Side wall shading
+      ctx.fillStyle = "rgba(0,0,0,0.18)";
+      ctx.fillRect(bx + 160, groundY - bh, 20, bh);
+      // Roof parapet
+      ctx.fillStyle = midColors[i % midColors.length];
+      ctx.fillRect(bx - 5, groundY - bh - 10, 190, 12);
+      // Windows with warm glow
+      ctx.fillStyle =
+        levelRatio > 0.5 ? "rgba(255,80,0,0.5)" : "rgba(255,230,120,0.6)";
+      for (let wy = groundY - bh + 18; wy < groundY - 18; wy += 26) {
+        for (let wx = bx + 14; wx < bx + 168; wx += 28) {
+          ctx.fillRect(wx, wy, 16, 16);
+        }
+      }
+      // Hindi shop sign on ground floor
+      if (i % 3 === 0) {
+        ctx.fillStyle = "rgba(180,50,50,0.8)";
+        ctx.fillRect(bx + 10, groundY - 36, 160, 28);
+        ctx.fillStyle = "#fff";
+        ctx.font = "bold 11px Arial";
+        ctx.textAlign = "center";
+        const signs = ["दुकान", "HOTEL", "CHAI", "786", "SHOP"];
+        ctx.fillText(signs[i % signs.length], bx + 90, groundY - 17);
+      }
+    }
+    // Layer 3 - Near foreground building edges (fastest parallax)
+    const nearColors =
+      levelRatio > 0.5 ? ["#3a1008", "#4a1810"] : ["#a07840", "#b88848"];
+    for (let i = 0; i < 6; i++) {
+      const bx =
+        ((((i * 300 + 150 - camX * 0.25) % (vw + 300)) + vw + 300) %
+          (vw + 300)) -
+        150;
+      const bh = 160 + (i % 2) * 80;
+      ctx.fillStyle = nearColors[i % nearColors.length];
+      ctx.fillRect(bx, groundY - bh, 80, bh);
+      ctx.fillRect(bx + vw * 0.5, groundY - bh - 30, 80, bh + 30);
+    }
+    // Atmospheric dust/haze overlay
+    const hazeGrad = ctx.createLinearGradient(0, groundY - 60, 0, groundY);
+    hazeGrad.addColorStop(0, "rgba(0,0,0,0)");
+    hazeGrad.addColorStop(
+      1,
+      levelRatio > 0.5 ? "rgba(60,10,0,0.4)" : "rgba(180,120,40,0.3)",
+    );
+    ctx.fillStyle = hazeGrad;
+    ctx.fillRect(0, groundY - 60, vw, 60);
   }
 
   function drawFire(
@@ -1702,11 +1753,17 @@ export default function GameCanvas() {
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    const vw = canvas.width;
-    const vh = canvas.height;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
 
     function drawMenu() {
       if (!ctx) return;
+      const dpr = window.devicePixelRatio || 1;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.imageSmoothingEnabled = true;
+      (
+        ctx as CanvasRenderingContext2D & { imageSmoothingQuality: string }
+      ).imageSmoothingQuality = "high";
       ctx.clearRect(0, 0, vw, vh);
       // Background
       const cityImg = imagesRef.current.cityBg;
