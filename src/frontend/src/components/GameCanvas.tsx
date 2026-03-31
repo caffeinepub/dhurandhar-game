@@ -1375,38 +1375,44 @@ export default function GameCanvas() {
     }
     ctx.restore();
 
-    // Bullets (arrow shape)
+    // Bullets (realistic bullet shape)
     for (const b of s.bullets) {
       const bsx = b.x - s.camX;
       const bsy = b.y - s.camY;
       const angle = Math.atan2(b.vy, b.vx);
-      const arrowLen = 18;
-      const arrowW = 5;
       ctx.save();
       ctx.translate(bsx, bsy);
       ctx.rotate(angle);
-      // Arrow shaft
+      // Bullet casing (brass/gold body)
+      const casingW = 10;
+      const casingH = 4;
       ctx.beginPath();
-      ctx.rect(-arrowLen * 0.55, -1.5, arrowLen * 0.75, 3);
-      ctx.fillStyle = "#111111";
+      ctx.rect(-casingW * 0.6, -casingH / 2, casingW, casingH);
+      ctx.fillStyle = b.fromPlayer ? "#c8a020" : "#a03010";
       ctx.fill();
-      // Arrowhead
+      // Bullet tip (rounded nose - silver/lead)
       ctx.beginPath();
-      ctx.moveTo(arrowLen * 0.5, 0);
-      ctx.lineTo(arrowLen * 0.5 - arrowW * 1.2, -arrowW);
-      ctx.lineTo(arrowLen * 0.5 - arrowW * 1.2, arrowW);
-      ctx.closePath();
-      ctx.fillStyle = b.fromPlayer ? "#ff6600" : "#cc0000";
+      ctx.ellipse(
+        casingW * 0.4 + 3,
+        0,
+        5,
+        casingH / 2,
+        0,
+        -Math.PI / 2,
+        Math.PI / 2,
+      );
+      ctx.fillStyle = b.fromPlayer ? "#d0d0d0" : "#c04040";
       ctx.fill();
-      // Tail feathers
+      // Casing rim at base
       ctx.beginPath();
-      ctx.moveTo(-arrowLen * 0.55, 0);
-      ctx.lineTo(-arrowLen * 0.55 - 5, -4);
-      ctx.moveTo(-arrowLen * 0.55, 0);
-      ctx.lineTo(-arrowLen * 0.55 - 5, 4);
-      ctx.strokeStyle = b.fromPlayer ? "#ffaa00" : "#ff6666";
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
+      ctx.rect(-casingW * 0.6 - 2, -casingH / 2 - 1, 3, casingH + 2);
+      ctx.fillStyle = b.fromPlayer ? "#8a6010" : "#6a1a00";
+      ctx.fill();
+      // Glint highlight on casing
+      ctx.beginPath();
+      ctx.rect(-casingW * 0.4, -casingH / 2 + 1, casingW * 0.5, 1);
+      ctx.fillStyle = "rgba(255,255,200,0.5)";
+      ctx.fill();
       ctx.restore();
     }
 
