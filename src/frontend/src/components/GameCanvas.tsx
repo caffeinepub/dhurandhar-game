@@ -1580,6 +1580,7 @@ export default function GameCanvas() {
     ctx.fillStyle = "white";
     ctx.font = "9px Arial";
     ctx.fillText(`${s.hhp}/${s.maxHhp}`, 14, 34);
+    ctx.globalAlpha = 0.3;
     ctx.fillStyle = "#ffd700";
     ctx.font = `bold ${Math.floor(vw * 0.038)}px serif`;
     ctx.textAlign = "center";
@@ -1587,6 +1588,7 @@ export default function GameCanvas() {
     ctx.shadowColor = "#ff8800";
     ctx.fillText("DHURANDHAR", vw / 2, 20);
     ctx.shadowBlur = 0;
+    ctx.globalAlpha = 1;
     ctx.fillStyle = "#ff9900";
     ctx.font = "11px Arial";
     ctx.fillText(`LEVEL ${s.level}/${MAX_LEVEL} — ${s.levelTitle}`, vw / 2, 38);
