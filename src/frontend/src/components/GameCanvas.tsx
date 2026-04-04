@@ -42,6 +42,7 @@ interface Entity {
   angle: number;
   color: string;
   accentColor: string;
+  muzzleFlashTimer: number;
 }
 interface Bullet {
   id: number;
@@ -105,6 +106,35 @@ interface Particle {
   color: string;
   size: number;
 }
+interface Pickup {
+  id: number;
+  x: number;
+  y: number;
+  type: "health" | "speed" | "ammo";
+  collected: boolean;
+  pulseTimer: number;
+}
+interface FloatingText {
+  id: number;
+  x: number;
+  y: number;
+  text: string;
+  color: string;
+  life: number;
+  maxLife: number;
+  vy: number;
+}
+interface ShellCasing {
+  id: number;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  angle: number;
+  spin: number;
+  life: number;
+  maxLife: number;
+}
 interface GameState {
   phase: Phase;
   hero: HeroName;
@@ -138,6 +168,15 @@ interface GameState {
   muted: boolean;
   idCounter: number;
   invincTimer: number;
+  pickups: Pickup[];
+  floatingTexts: FloatingText[];
+  shellCasings: ShellCasing[];
+  speedBoostTimer: number;
+  killStreak: number;
+  killStreakTimer: number;
+  scoreMultiplier: number;
+  streakBannerTimer: number;
+  streakBannerText: string;
 }
 
 const LEVEL_TITLES: Record<number, string> = {
@@ -196,13 +235,314 @@ function getBgTheme(level: number): BgTheme {
 }
 
 // ─── Audio ───────────────────────────────────────────────────────────────────
+// ─── Audio Engine ────────────────────────────────────────────────────────────
 let audioCtx: AudioContext | null = null;
-let droneNode: OscillatorNode | null = null;
-let droneGain: GainNode | null = null;
+let musicNodes: AudioNode[] = [];
+let musicScheduler: ReturnType<typeof setTimeout> | null = null;
+let currentMusicLevel = 0;
+let musicMasterGain: GainNode | null = null;
+
 function getAudioCtx() {
   if (!audioCtx) audioCtx = new AudioContext();
   return audioCtx;
 }
+
+// War-action music engine — dynamic intensity based on level
+// Uses a 3-layer system: bass pulse, melody lead, percussion
+
+const NOTES = {
+  E2: 82.41,
+  A2: 110,
+  D3: 146.83,
+  E3: 164.81,
+  A3: 220,
+  B3: 246.94,
+  C4: 261.63,
+  D4: 293.66,
+  E4: 329.63,
+  F4: 349.23,
+  G4: 392,
+  A4: 440,
+  B4: 493.88,
+  C5: 523.25,
+  D5: 587.33,
+  E5: 659.25,
+};
+
+// Dhurandhar-style war melody — minor pentatonic tension
+const MELODY_LOW = [
+  NOTES.A3,
+  NOTES.C4,
+  NOTES.D4,
+  NOTES.E4,
+  NOTES.A3,
+  NOTES.G4,
+  NOTES.E4,
+  NOTES.D4,
+];
+const MELODY_MID = [
+  NOTES.E4,
+  NOTES.A4,
+  NOTES.B4,
+  NOTES.A4,
+  NOTES.G4,
+  NOTES.E4,
+  NOTES.D4,
+  NOTES.E4,
+];
+const MELODY_HIGH = [
+  NOTES.A4,
+  NOTES.C5,
+  NOTES.D5,
+  NOTES.E5,
+  NOTES.D5,
+  NOTES.C5,
+  NOTES.B4,
+  NOTES.A4,
+];
+const BASS_LOW = [
+  NOTES.A2,
+  NOTES.A2,
+  NOTES.D3,
+  NOTES.A2,
+  NOTES.E3,
+  NOTES.D3,
+  NOTES.A2,
+  NOTES.E2,
+];
+const BASS_HIGH = [
+  NOTES.A2,
+  NOTES.E3,
+  NOTES.D3,
+  NOTES.E3,
+  NOTES.A2,
+  NOTES.E3,
+  NOTES.D3,
+  NOTES.A2,
+];
+
+function stopAllMusic() {
+  if (musicScheduler) {
+    clearTimeout(musicScheduler);
+    musicScheduler = null;
+  }
+  for (const n of musicNodes) {
+    try {
+      (n as OscillatorNode).stop?.();
+    } catch {}
+  }
+  musicNodes = [];
+  musicMasterGain = null;
+}
+
+function playNote(
+  ctx: AudioContext,
+  dest: AudioNode,
+  freq: number,
+  startTime: number,
+  dur: number,
+  vol: number,
+  type: OscillatorType = "square",
+  attack = 0.01,
+  decay = 0.05,
+  sustain = 0.7,
+) {
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  const filt = ctx.createBiquadFilter();
+  filt.type = "lowpass";
+  filt.frequency.value = 1800;
+  osc.type = type;
+  osc.frequency.value = freq;
+  osc.connect(filt);
+  filt.connect(gain);
+  gain.connect(dest);
+  gain.gain.setValueAtTime(0, startTime);
+  gain.gain.linearRampToValueAtTime(vol, startTime + attack);
+  gain.gain.linearRampToValueAtTime(vol * sustain, startTime + attack + decay);
+  gain.gain.setValueAtTime(vol * sustain, startTime + dur - 0.04);
+  gain.gain.linearRampToValueAtTime(0, startTime + dur);
+  osc.start(startTime);
+  osc.stop(startTime + dur + 0.05);
+  musicNodes.push(osc);
+}
+
+function playDrum(
+  ctx: AudioContext,
+  dest: AudioNode,
+  startTime: number,
+  isKick: boolean,
+) {
+  const buf = ctx.createBuffer(1, ctx.sampleRate * 0.18, ctx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) {
+    const t = i / ctx.sampleRate;
+    d[i] = isKick
+      ? Math.sin(2 * Math.PI * 80 * Math.exp(-t * 30) * t) * Math.exp(-t * 20)
+      : (Math.random() * 2 - 1) * Math.exp(-t * 40) * 0.7;
+  }
+  const src = ctx.createBufferSource();
+  const gain = ctx.createGain();
+  src.buffer = buf;
+  src.connect(gain);
+  gain.connect(dest);
+  gain.gain.value = isKick ? 0.9 : 0.4;
+  src.start(startTime);
+  musicNodes.push(src);
+}
+
+function scheduleBar(
+  ctx: AudioContext,
+  dest: AudioNode,
+  startTime: number,
+  level: number,
+) {
+  const bpm = 90 + Math.min(level * 4, 50); // 90–140 bpm as levels rise
+  const beat = 60 / bpm;
+  const bar = beat * 4;
+  const intensity = Math.min((level - 1) / 19, 1); // 0 = level 1, 1 = level 20
+  const isBoss = level === 5 || level === 10 || level === 15 || level === 20;
+
+  // Bass
+  const bassLine = intensity > 0.5 ? BASS_HIGH : BASS_LOW;
+  for (let i = 0; i < 8; i++) {
+    const t = startTime + i * (bar / 8);
+    playNote(
+      ctx,
+      dest,
+      bassLine[i],
+      t,
+      (bar / 8) * 0.9,
+      0.22,
+      "sawtooth",
+      0.01,
+      0.03,
+      0.6,
+    );
+  }
+
+  // Melody (starts at level 3+, gets higher register at level 10+)
+  if (level >= 3) {
+    const mel =
+      intensity > 0.5
+        ? MELODY_HIGH
+        : intensity > 0.25
+          ? MELODY_MID
+          : MELODY_LOW;
+    for (let i = 0; i < 8; i++) {
+      const t = startTime + i * (bar / 8) + beat * 0.02; // slight offset for texture
+      const skip = intensity < 0.3 && i % 2 === 1; // sparser at low levels
+      if (!skip) {
+        playNote(
+          ctx,
+          dest,
+          mel[i],
+          t,
+          (bar / 8) * 0.7,
+          isBoss ? 0.18 : 0.12,
+          "triangle",
+          0.005,
+          0.04,
+          0.5,
+        );
+      }
+    }
+  }
+
+  // Harmony / chord stabs at level 6+
+  if (level >= 6) {
+    const chordFreqs = [NOTES.E4, NOTES.A4, NOTES.C5];
+    for (let i = 0; i < 4; i++) {
+      const t = startTime + i * beat + beat * 0.5;
+      for (const f of chordFreqs) {
+        playNote(ctx, dest, f, t, beat * 0.3, 0.06, "square", 0.005, 0.02, 0.4);
+      }
+    }
+  }
+
+  // Percussion: kick on 1 & 3, snare on 2 & 4 (levels 2+)
+  if (level >= 2) {
+    for (let b = 0; b < 4; b++) {
+      const t = startTime + b * beat;
+      playDrum(ctx, dest, t, b % 2 === 0); // kick on 0,2  snare on 1,3
+      // hi-hats at level 5+
+      if (level >= 5) {
+        playDrum(ctx, dest, t + beat * 0.5, false);
+      }
+      // 16th hat fills at level 12+
+      if (level >= 12) {
+        playDrum(ctx, dest, t + beat * 0.25, false);
+        playDrum(ctx, dest, t + beat * 0.75, false);
+      }
+    }
+  }
+
+  // War tension: distortion pulse at boss levels
+  if (isBoss) {
+    const warOsc = ctx.createOscillator();
+    const warGain = ctx.createGain();
+    warOsc.type = "sawtooth";
+    warOsc.frequency.setValueAtTime(NOTES.E2, startTime);
+    warOsc.frequency.linearRampToValueAtTime(NOTES.A2, startTime + bar);
+    warGain.gain.setValueAtTime(0, startTime);
+    warGain.gain.linearRampToValueAtTime(0.08, startTime + 0.1);
+    warGain.gain.setValueAtTime(0.08, startTime + bar - 0.1);
+    warGain.gain.linearRampToValueAtTime(0, startTime + bar);
+    warOsc.connect(warGain);
+    warGain.connect(dest);
+    warOsc.start(startTime);
+    warOsc.stop(startTime + bar + 0.1);
+    musicNodes.push(warOsc);
+  }
+
+  return bar;
+}
+
+function startMusicLoop(level: number) {
+  if (musicMasterGain) return; // already playing
+  try {
+    const ctx = getAudioCtx();
+    if (ctx.state === "suspended") ctx.resume();
+    const master = ctx.createGain();
+    master.gain.value = 0.55;
+    master.connect(ctx.destination);
+    musicMasterGain = master;
+    currentMusicLevel = level;
+
+    let nextBar = ctx.currentTime + 0.05;
+
+    function loop() {
+      if (!musicMasterGain) return;
+      const ctx2 = getAudioCtx();
+      const barDur = scheduleBar(
+        ctx2,
+        musicMasterGain,
+        nextBar,
+        currentMusicLevel,
+      );
+      nextBar += barDur;
+      const lookahead = nextBar - ctx2.currentTime;
+      musicScheduler = setTimeout(loop, Math.max(0, (lookahead - 0.1) * 1000));
+    }
+    loop();
+  } catch {}
+}
+
+function startDrone(muted: boolean) {
+  if (muted) return;
+  stopAllMusic();
+  startMusicLoop(currentMusicLevel || 1);
+}
+
+function stopDrone() {
+  stopAllMusic();
+}
+
+function updateMusicLevel(level: number) {
+  currentMusicLevel = level;
+  // No restart needed — next bar picks up new level automatically
+}
+
 function playShoot(muted: boolean) {
   if (muted) return;
   try {
@@ -211,86 +551,100 @@ function playShoot(muted: boolean) {
     const gain = ctx.createGain();
     osc.connect(gain);
     gain.connect(ctx.destination);
-    osc.frequency.setValueAtTime(800, ctx.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(200, ctx.currentTime + 0.08);
-    gain.gain.setValueAtTime(0.3, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.08);
+    osc.frequency.setValueAtTime(900, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(180, ctx.currentTime + 0.07);
+    gain.gain.setValueAtTime(0.25, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.07);
     osc.start();
-    osc.stop(ctx.currentTime + 0.08);
+    osc.stop(ctx.currentTime + 0.07);
+    // crack layer
+    const buf = ctx.createBuffer(1, ctx.sampleRate * 0.04, ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++)
+      d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.02));
+    const src = ctx.createBufferSource();
+    const g2 = ctx.createGain();
+    src.buffer = buf;
+    src.connect(g2);
+    g2.connect(ctx.destination);
+    g2.gain.value = 0.3;
+    src.start();
   } catch {}
 }
+
 function playHit(muted: boolean) {
   if (muted) return;
   try {
     const ctx = getAudioCtx();
-    const buf = ctx.createBuffer(1, ctx.sampleRate * 0.05, ctx.sampleRate);
+    const buf = ctx.createBuffer(1, ctx.sampleRate * 0.06, ctx.sampleRate);
     const d = buf.getChannelData(0);
-    for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * 0.5;
+    for (let i = 0; i < d.length; i++)
+      d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.03));
     const src = ctx.createBufferSource();
     const gain = ctx.createGain();
     src.buffer = buf;
     src.connect(gain);
     gain.connect(ctx.destination);
-    gain.gain.value = 0.8;
+    gain.gain.value = 0.7;
     src.start();
   } catch {}
 }
+
 function playExplosion(muted: boolean) {
   if (muted) return;
   try {
     const ctx = getAudioCtx();
-    const buf = ctx.createBuffer(1, ctx.sampleRate * 0.4, ctx.sampleRate);
+    // Low boom
+    const buf = ctx.createBuffer(1, ctx.sampleRate * 0.5, ctx.sampleRate);
     const d = buf.getChannelData(0);
     for (let i = 0; i < d.length; i++)
-      d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.3));
+      d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.25));
     const src = ctx.createBufferSource();
     const gain = ctx.createGain();
+    const filt = ctx.createBiquadFilter();
+    filt.type = "lowpass";
+    filt.frequency.value = 300;
     src.buffer = buf;
-    src.connect(gain);
+    src.connect(filt);
+    filt.connect(gain);
     gain.connect(ctx.destination);
-    gain.gain.value = 1.5;
+    gain.gain.value = 2.2;
     src.start();
+    // High crack
+    const buf2 = ctx.createBuffer(1, ctx.sampleRate * 0.15, ctx.sampleRate);
+    const d2 = buf2.getChannelData(0);
+    for (let i = 0; i < d2.length; i++)
+      d2[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.05));
+    const src2 = ctx.createBufferSource();
+    const gain2 = ctx.createGain();
+    src2.buffer = buf2;
+    src2.connect(gain2);
+    gain2.connect(ctx.destination);
+    gain2.gain.value = 0.8;
+    src2.start();
   } catch {}
 }
+
 function playBossAlert(muted: boolean) {
   if (muted) return;
   try {
     const ctx = getAudioCtx();
-    for (const t of [0, 0.15, 0.3]) {
+    // Dramatic 3-tone war horn
+    const freqs = [NOTES.E4, NOTES.A4, NOTES.E5];
+    freqs.forEach((f, idx) => {
+      const t = ctx.currentTime + idx * 0.2;
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
+      osc.type = "sawtooth";
+      osc.frequency.value = f;
       osc.connect(gain);
       gain.connect(ctx.destination);
-      osc.frequency.value = 440;
-      gain.gain.setValueAtTime(0.4, ctx.currentTime + t);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + t + 0.14);
-      osc.start(ctx.currentTime + t);
-      osc.stop(ctx.currentTime + t + 0.14);
-    }
+      gain.gain.setValueAtTime(0.35, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+      osc.start(t);
+      osc.stop(t + 0.18);
+    });
   } catch {}
-}
-function startDrone(muted: boolean) {
-  if (muted || droneNode) return;
-  try {
-    const ctx = getAudioCtx();
-    droneNode = ctx.createOscillator();
-    droneGain = ctx.createGain();
-    droneNode.type = "sawtooth";
-    droneNode.frequency.value = 55;
-    droneGain.gain.value = 0.04;
-    droneNode.connect(droneGain);
-    droneGain.connect(ctx.destination);
-    droneNode.start();
-  } catch {}
-}
-function stopDrone() {
-  if (droneNode) {
-    try {
-      droneNode.stop();
-    } catch {}
-    droneNode = null;
-  }
-  droneGain = null;
 }
 
 // ─── Seeded random ───────────────────────────────────────────────────────────
@@ -469,6 +823,7 @@ function spawnLevelEnemies(
       angle,
       color: "#2a1010",
       accentColor: "#cc3300",
+      muzzleFlashTimer: 0,
     });
   }
   let nextId = idStart + gruntCount;
@@ -498,10 +853,68 @@ function spawnLevelEnemies(
       angle: 0,
       color,
       accentColor,
+      muzzleFlashTimer: 0,
     });
     nextId++;
   }
   return { enemies, nextId };
+}
+
+function spawnPickups(
+  level: number,
+  buildings: CityBuilding[],
+  idStart: number,
+): { pickups: Pickup[]; nextId: number } {
+  const rand = seededRand(level * 77 + 13);
+  const count = 8 + Math.floor(rand() * 5);
+  const pickups: Pickup[] = [];
+  const types: Pickup["type"][] = ["health", "speed", "ammo"];
+  let id = idStart;
+  for (let i = 0; i < count; i++) {
+    let px = 100 + rand() * (WORLD_W - 200);
+    let py = 100 + rand() * (WORLD_H - 200);
+    // Try to avoid buildings
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const overlap = buildings.some(
+        (b) =>
+          px > b.x - 20 &&
+          px < b.x + b.w + 20 &&
+          py > b.y - 20 &&
+          py < b.y + b.h + 20,
+      );
+      if (!overlap) break;
+      px = 100 + rand() * (WORLD_W - 200);
+      py = 100 + rand() * (WORLD_H - 200);
+    }
+    pickups.push({
+      id: id++,
+      x: px,
+      y: py,
+      type: types[Math.floor(rand() * types.length)],
+      collected: false,
+      pulseTimer: rand() * Math.PI * 2,
+    });
+  }
+  return { pickups, nextId: id };
+}
+
+function spawnFloatingText(
+  s: GameState,
+  x: number,
+  y: number,
+  text: string,
+  color: string,
+) {
+  s.floatingTexts.push({
+    id: s.idCounter++,
+    x,
+    y,
+    text,
+    color,
+    life: 1.2,
+    maxLife: 1.2,
+    vy: -60,
+  });
 }
 
 function initGameState(hero: HeroName): GameState {
@@ -542,6 +955,15 @@ function initGameState(hero: HeroName): GameState {
     muted: false,
     idCounter: nextId,
     invincTimer: 0,
+    pickups: spawnPickups(1, buildings, nextId + 100).pickups,
+    floatingTexts: [],
+    shellCasings: [],
+    speedBoostTimer: 0,
+    killStreak: 0,
+    killStreakTimer: 0,
+    scoreMultiplier: 1,
+    streakBannerTimer: 0,
+    streakBannerText: "",
   };
 }
 
@@ -550,6 +972,19 @@ function heroShoot(s: GameState) {
   if (s.hShootCooldown > 0) return;
   s.hShootCooldown = 0.18;
   s.muzzleFlashTimer = 0.1;
+  // Shell casing ejection
+  const perpAngle = s.hAngle - Math.PI / 2;
+  s.shellCasings.push({
+    id: s.idCounter++,
+    x: s.hx + Math.cos(perpAngle) * 8,
+    y: s.hy + Math.sin(perpAngle) * 8,
+    vx: Math.cos(perpAngle) * (40 + Math.random() * 60),
+    vy: Math.sin(perpAngle) * (40 + Math.random() * 60) - 80,
+    angle: Math.random() * Math.PI * 2,
+    spin: (Math.random() - 0.5) * 15,
+    life: 1.5,
+    maxLife: 1.5,
+  });
   const vx = Math.cos(s.hAngle) * BULLET_SPEED;
   const vy = Math.sin(s.hAngle) * BULLET_SPEED;
   s.bullets.push({
@@ -591,6 +1026,7 @@ function throwBomb(s: GameState) {
   });
 }
 function enemyShoot(s: GameState, e: Entity) {
+  e.muzzleFlashTimer = 0.08;
   const dx = s.hx - e.x;
   const dy = s.hy - e.y;
   const dist = Math.hypot(dx, dy) || 1;
@@ -927,6 +1363,7 @@ export default function GameCanvas() {
     (selectedHero: HeroName) => {
       stateRef.current = initGameState(selectedHero);
       setPhase("playing");
+      currentMusicLevel = stateRef.current?.level ?? 1;
       startDrone(muted);
     },
     [muted],
@@ -980,8 +1417,9 @@ export default function GameCanvas() {
       mx /= len;
       my /= len;
     }
-    s.hvx = mx * MOVE_SPEED;
-    s.hvy = my * MOVE_SPEED;
+    const currentSpeed = MOVE_SPEED * (s.speedBoostTimer > 0 ? 1.8 : 1);
+    s.hvx = mx * currentSpeed;
+    s.hvy = my * currentSpeed;
     if (mx !== 0 || my !== 0) s.hAngle = Math.atan2(my, mx);
     s.hx = Math.max(
       HERO_RADIUS,
@@ -1008,6 +1446,22 @@ export default function GameCanvas() {
     }
     s.hShootCooldown = Math.max(0, s.hShootCooldown - dt);
     s.muzzleFlashTimer = Math.max(0, s.muzzleFlashTimer - dt);
+    if (s.speedBoostTimer > 0)
+      s.speedBoostTimer = Math.max(0, s.speedBoostTimer - dt);
+    if (s.killStreakTimer > 0) {
+      s.killStreakTimer = Math.max(0, s.killStreakTimer - dt);
+      if (s.killStreakTimer <= 0) {
+        s.killStreak = 0;
+        s.scoreMultiplier = 1;
+      }
+    }
+    if (s.streakBannerTimer > 0)
+      s.streakBannerTimer = Math.max(0, s.streakBannerTimer - dt);
+    // Enemy muzzle flash timers
+    for (const e of s.enemies) {
+      if (e.muzzleFlashTimer > 0)
+        e.muzzleFlashTimer = Math.max(0, e.muzzleFlashTimer - dt);
+    }
     if ((keys.has("Space") || keys.has("Enter")) && s.hShootCooldown <= 0)
       heroShoot(s);
     if (keys.has("KeyB") && s.hBombs > 0) {
@@ -1107,6 +1561,28 @@ export default function GameCanvas() {
       }
     }
 
+    // Pickups
+    for (const pu of s.pickups) {
+      pu.pulseTimer += dt * 3;
+    }
+    for (const p of s.pickups) {
+      if (p.collected) continue;
+      if (Math.hypot(s.hx - p.x, s.hy - p.y) < 24) {
+        p.collected = true;
+        if (p.type === "health") {
+          s.hhp = Math.min(s.maxHhp, s.hhp + 40);
+          spawnFloatingText(s, p.x, p.y, "+40 HP", "#44ff88");
+        } else if (p.type === "speed") {
+          s.speedBoostTimer = 6.0;
+          spawnFloatingText(s, p.x, p.y, "SPEED BOOST!", "#44ffff");
+        } else if (p.type === "ammo") {
+          s.hBombs = Math.min(5, s.hBombs + 2);
+          spawnFloatingText(s, p.x, p.y, "+2 BOMBS", "#ff9900");
+        }
+      }
+    }
+    s.pickups = s.pickups.filter((p) => !p.collected);
+
     // Bullets
     for (const b of s.bullets) {
       b.x += b.vx * dt;
@@ -1125,14 +1601,41 @@ export default function GameCanvas() {
             e.hp -= 20;
             b.life = 0;
             spawnParticles(s, e.x, e.y, "#ff4400", 6);
+            spawnFloatingText(s, e.x, e.y - 20, "20", "#ffee00");
             playHit(s.muted);
             if (e.hp <= 0) {
               e.dead = true;
-              s.score += e.isBoss ? 500 : 50;
+              // Kill streak
+              s.killStreak++;
+              s.killStreakTimer = 3.0;
+              if (s.killStreak >= 7) {
+                s.scoreMultiplier = 4;
+                s.streakBannerText = "UNSTOPPABLE! x4";
+                s.streakBannerTimer = 2.0;
+              } else if (s.killStreak >= 5) {
+                s.scoreMultiplier = 3;
+                s.streakBannerText = "KILLING SPREE! x3";
+                s.streakBannerTimer = 2.0;
+              } else if (s.killStreak >= 3) {
+                s.scoreMultiplier = 2;
+                s.streakBannerText = "TRIPLE KILL! x2";
+                s.streakBannerTimer = 2.0;
+              }
+              const baseScore = e.isBoss ? 500 : 50;
+              s.score += baseScore * s.scoreMultiplier;
               if (e.isBoss) {
                 s.totalBossesKilled++;
                 playBossAlert(s.muted);
                 spawnParticles(s, e.x, e.y, "#ff8800", 20);
+                spawnFloatingText(
+                  s,
+                  e.x,
+                  e.y - 30,
+                  "BOSS DOWN! +500",
+                  "#ffd700",
+                );
+              } else {
+                spawnFloatingText(s, e.x, e.y - 25, "ELIMINATED!", "#ff4444");
               }
             }
             break;
@@ -1215,6 +1718,23 @@ export default function GameCanvas() {
     }
     s.particles = s.particles.filter((p) => p.life > 0);
 
+    // Shell casings
+    for (const sc of s.shellCasings) {
+      sc.x += sc.vx * dt;
+      sc.y += sc.vy * dt;
+      sc.vy += 200 * dt;
+      sc.angle += sc.spin * dt;
+      sc.life -= dt;
+    }
+    s.shellCasings = s.shellCasings.filter((sc) => sc.life > 0);
+
+    // Floating texts
+    for (const ft of s.floatingTexts) {
+      ft.y += ft.vy * dt;
+      ft.life -= dt;
+    }
+    s.floatingTexts = s.floatingTexts.filter((ft) => ft.life > 0);
+
     // Level clear
     const allDead = s.enemies.filter((e) => !e.dead).length === 0;
     if (allDead) {
@@ -1223,6 +1743,7 @@ export default function GameCanvas() {
         return;
       }
       s.level++;
+      updateMusicLevel(s.level);
       s.levelTitle = LEVEL_TITLES[s.level] ?? `LEVEL ${s.level}`;
       s.levelSplash = 2.5;
       s.buildings = generateCity(getBgTheme(s.level), s.level);
@@ -1237,6 +1758,15 @@ export default function GameCanvas() {
       s.idCounter = nextId;
       s.bullets = [];
       s.bombs = [];
+      const { pickups: newPickups, nextId: pidNext } = spawnPickups(
+        s.level,
+        s.buildings,
+        s.idCounter,
+      );
+      s.pickups = newPickups;
+      s.idCounter = pidNext;
+      s.floatingTexts = [];
+      s.shellCasings = [];
       const bossName = BOSS_AT_LEVEL[s.level];
       if (bossName) {
         s.bossWarning = `⚠ BOSS INCOMING: ${bossName.toUpperCase()} ⚠`;
@@ -1504,6 +2034,142 @@ export default function GameCanvas() {
           .padStart(2, "0");
       ctx.fill();
     }
+
+    // Shell casings
+    for (const sc of s.shellCasings) {
+      const scx = sc.x - s.camX;
+      const scy = sc.y - s.camY;
+      const alpha = sc.life / sc.maxLife;
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.translate(scx, scy);
+      ctx.rotate(sc.angle);
+      ctx.fillStyle = "#c8a020";
+      ctx.fillRect(-2, -1, 4, 2);
+      ctx.restore();
+    }
+
+    // Pickups
+    const pt = performance.now() / 1000;
+    for (const p of s.pickups) {
+      if (p.collected) continue;
+      const px = p.x - s.camX;
+      const py = p.y - s.camY;
+      if (px < -30 || px > vw + 30 || py < -30 || py > vh + 30) continue;
+      const pulse = 0.85 + Math.sin(p.pulseTimer) * 0.15;
+      const r = 14 * pulse;
+      ctx.save();
+      // Glow
+      const glowGrad = ctx.createRadialGradient(px, py, 0, px, py, r * 2);
+      if (p.type === "health") {
+        glowGrad.addColorStop(0, "rgba(255,80,80,0.4)");
+        glowGrad.addColorStop(1, "rgba(255,0,0,0)");
+      } else if (p.type === "speed") {
+        glowGrad.addColorStop(0, "rgba(0,255,255,0.4)");
+        glowGrad.addColorStop(1, "rgba(0,200,200,0)");
+      } else {
+        glowGrad.addColorStop(0, "rgba(255,160,0,0.4)");
+        glowGrad.addColorStop(1, "rgba(255,100,0,0)");
+      }
+      ctx.beginPath();
+      ctx.arc(px, py, r * 2, 0, Math.PI * 2);
+      ctx.fillStyle = glowGrad;
+      ctx.fill();
+      // Circle
+      ctx.beginPath();
+      ctx.arc(px, py, r, 0, Math.PI * 2);
+      ctx.fillStyle =
+        p.type === "health"
+          ? "#fff"
+          : p.type === "speed"
+            ? "#001a1a"
+            : "#1a0800";
+      ctx.fill();
+      ctx.strokeStyle =
+        p.type === "health"
+          ? "#ff4444"
+          : p.type === "speed"
+            ? "#00ffff"
+            : "#ff9900";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      // Icon
+      ctx.fillStyle =
+        p.type === "health"
+          ? "#ff2222"
+          : p.type === "speed"
+            ? "#00ffff"
+            : "#ff9900";
+      ctx.font = `bold ${Math.floor(r * 1.1)}px Arial`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      if (p.type === "health") {
+        ctx.fillText("+", px, py);
+      } else if (p.type === "speed") {
+        ctx.fillText("⚡", px, py);
+      } else {
+        ctx.fillText("💣", px, py);
+      }
+      ctx.textBaseline = "alphabetic";
+      ctx.restore();
+    }
+
+    // Enemy muzzle flashes
+    for (const e of s.enemies) {
+      if (e.dead || e.muzzleFlashTimer <= 0) continue;
+      const esx = e.x - s.camX;
+      const esy = e.y - s.camY;
+      const flashI = e.muzzleFlashTimer / 0.08;
+      const muzzleOffset = 20;
+      const muzzX = esx + Math.cos(e.angle) * muzzleOffset;
+      const muzzY = esy + Math.sin(e.angle) * muzzleOffset;
+      ctx.save();
+      ctx.globalAlpha = flashI * 0.85;
+      const eg = ctx.createRadialGradient(muzzX, muzzY, 0, muzzX, muzzY, 16);
+      eg.addColorStop(0, "rgba(255,200,80,1)");
+      eg.addColorStop(0.5, "rgba(255,100,0,0.7)");
+      eg.addColorStop(1, "rgba(255,0,0,0)");
+      ctx.beginPath();
+      ctx.arc(muzzX, muzzY, 16, 0, Math.PI * 2);
+      ctx.fillStyle = eg;
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // Low HP red vignette
+    if (s.hhp < s.maxHhp * 0.3) {
+      const vigAlpha = Math.sin(pt * 5) * 0.15 + 0.2;
+      const vigGrad = ctx.createRadialGradient(
+        vw / 2,
+        vh / 2,
+        vh * 0.3,
+        vw / 2,
+        vh / 2,
+        vh * 0.85,
+      );
+      vigGrad.addColorStop(0, "rgba(200,0,0,0)");
+      vigGrad.addColorStop(1, `rgba(200,0,0,${vigAlpha})`);
+      ctx.fillStyle = vigGrad;
+      ctx.fillRect(0, 0, vw, vh);
+    }
+
+    // Floating texts
+    for (const ft of s.floatingTexts) {
+      const ftx = ft.x - s.camX;
+      const fty = ft.y - s.camY;
+      const alpha = ft.life / ft.maxLife;
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.font = "bold 14px Arial";
+      ctx.textAlign = "center";
+      ctx.strokeStyle = "rgba(0,0,0,0.8)";
+      ctx.lineWidth = 3;
+      ctx.strokeText(ft.text, ftx, fty);
+      ctx.fillStyle = ft.color;
+      ctx.fillText(ft.text, ftx, fty);
+      ctx.restore();
+    }
+
     ctx.restore();
 
     drawHUD(ctx, vw, vh, s);
@@ -1537,6 +2203,27 @@ export default function GameCanvas() {
       ctx.shadowBlur = 20;
       ctx.shadowColor = "#ff0000";
       ctx.fillText(s.bossWarning, vw / 2, vh * 0.14 + 42);
+      ctx.shadowBlur = 0;
+      ctx.globalAlpha = 1;
+    }
+    // Streak banner
+    if (s.streakBannerTimer > 0) {
+      const sba = Math.min(s.streakBannerTimer, 1);
+      ctx.globalAlpha = sba;
+      const bannerColor =
+        s.scoreMultiplier >= 4
+          ? "#ff44ff"
+          : s.scoreMultiplier >= 3
+            ? "#ff6600"
+            : "#ffee00";
+      ctx.fillStyle = "rgba(0,0,0,0.85)";
+      ctx.fillRect(vw / 2 - 160, vh * 0.58, 320, 44);
+      ctx.fillStyle = bannerColor;
+      ctx.font = `bold ${Math.floor(vw * 0.045)}px serif`;
+      ctx.textAlign = "center";
+      ctx.shadowBlur = 20;
+      ctx.shadowColor = bannerColor;
+      ctx.fillText(s.streakBannerText, vw / 2, vh * 0.58 + 32);
       ctx.shadowBlur = 0;
       ctx.globalAlpha = 1;
     }
@@ -1602,6 +2289,21 @@ export default function GameCanvas() {
     );
     ctx.fillStyle = "#ffd700";
     ctx.fillText(`💣 x${s.hBombs}  Score: ${s.score}`, vw - 10, 38);
+    // Kill streak display
+    if (s.killStreak >= 2) {
+      ctx.fillStyle =
+        s.killStreak >= 7
+          ? "#ff44ff"
+          : s.killStreak >= 5
+            ? "#ff6600"
+            : "#ffcc00";
+      ctx.font = "bold 10px Arial";
+      ctx.fillText(
+        `🔥 STREAK x${s.killStreak}  MULT x${s.scoreMultiplier}`,
+        vw - 10,
+        52,
+      );
+    }
     ctx.fillStyle = "rgba(0,0,0,0.85)";
     ctx.fillRect(0, vh - 22, vw, 22);
     ctx.fillStyle = "#ffd700";
