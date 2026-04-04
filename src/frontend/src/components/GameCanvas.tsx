@@ -2232,7 +2232,7 @@ export default function GameCanvas() {
     ctx.font = "11px Arial";
     ctx.textAlign = "center";
     ctx.fillText(
-      "© Priyanka Sharma | priyankadsharma11@gmail.com",
+      "© Priyanka Sharma | Priyankadsharma12345@gmail.com",
       vw / 2,
       vh / 2,
     );
@@ -2310,7 +2310,7 @@ export default function GameCanvas() {
     ctx.font = "9px Arial";
     ctx.textAlign = "center";
     ctx.fillText(
-      "© 2026 Dhurandhar | Priyanka Sharma | priyankadsharma11@gmail.com | All Rights Reserved",
+      "© 2026 Dhurandhar | Priyanka Sharma | Priyankadsharma12345@gmail.com | All Rights Reserved",
       vw / 2,
       vh - 6,
     );
@@ -2451,7 +2451,7 @@ export default function GameCanvas() {
       ctx.fillStyle = "rgba(255,255,255,0.5)";
       ctx.font = "12px Arial";
       ctx.fillText(
-        "© 2026 Priyanka Sharma | priyankadsharma11@gmail.com",
+        "© 2026 Priyanka Sharma | Priyankadsharma12345@gmail.com",
         vw / 2,
         vh * 0.42,
       );
@@ -2494,7 +2494,7 @@ export default function GameCanvas() {
     ctx.font = "9px Arial";
     ctx.textAlign = "center";
     ctx.fillText(
-      "© 2026 Dhurandhar | Priyanka Sharma | priyankadsharma11@gmail.com | All Rights Reserved",
+      "© 2026 Dhurandhar | Priyanka Sharma | Priyankadsharma12345@gmail.com | All Rights Reserved",
       vw / 2,
       vh - 6,
     );
