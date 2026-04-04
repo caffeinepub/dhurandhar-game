@@ -1,40 +1,53 @@
-# Dhurandhar Game
+# KidsLearn - English & Hindi Learning App for Kids (Nursery to Class 4)
 
 ## Current State
-Full side-scrolling Free Fire-style action game with:
-- Heroes: Humza Ali Mazari, Ajay Sanyal
-- 4 boss villains: Rehman Dakait, SP Aslam Choudhury, Major Iqbal, Jameel Jamali
-- Enemies flee and fight back
-- Bomb mechanic (B key / 💣 button)
-- Minimap with flashing boss markers
-- Mobile joystick + FIRE/JUMP/WPN/BOMB buttons
-- Level system with war escalation sky/effects
-- Copyright bar: Priyanka Sharma / priyankadsharma11@gmail.com
-- Characters drawn on canvas as human figures, some clarity issues reported
+New project — no existing application files.
 
 ## Requested Changes (Diff)
 
 ### Add
-- 20 distinct levels to complete the game
-- Different background environment per level (5 distinct environment themes cycling across 20 levels)
-- Different enemy types per level group
-- Each level harder than the last
-- Bosses spread across levels (boss at every 5th level: 5, 10, 15, 20)
+- Kids learning app supporting English and Hindi, for classes Nursery, KG, Class 1, Class 2, Class 3, Class 4
+- Home screen with class selector (colorful cards for each class)
+- Subject areas per class: Alphabet (English & Hindi), Numbers, Shapes, Colors, Animals, Basic Math, Spelling, Phonics
+- Interactive learning games:
+  - Alphabet tracing / letter matching game
+  - Number counting game with animated objects
+  - Spelling quiz (tap the correct letter)
+  - Shape and color matching drag-and-drop
+  - Animal sound quiz (tap the animal that makes the sound)
+  - Basic addition/subtraction quiz for Class 1-4
+  - Hindi Varnamala learning (अ आ इ...)
+  - Hindi word matching game
+- Rewards system: stars earned per completed activity, badges/trophies for milestones
+- Progress tracking: per class, per subject, percentage completed
+- Parent dashboard: view child's progress, completed lessons, earned badges
+- Bilingual UI: all text labels and instructions in both English and Hindi
+- Colorful, child-friendly UI with large buttons, bright colors, animated characters/mascots
+- Sound effects and encouraging voice feedback ("Great job!", "शाबाश!")
+- Leaderboard / achievements screen
 
 ### Modify
-- Characters must be drawn as full, clear, single-piece human figures using the uploaded reference images
-- All characters must stand on the ground, not fly or split
-- Level count cap at 20 to complete the main goal
-- Backgrounds must vary per level: morning city (1-4), dusk city (5-8), night war-torn (9-12), desert/village (13-16), final battle zone (17-20)
+- N/A (new project)
 
 ### Remove
-- Nothing to remove
+- N/A (new project)
 
 ## Implementation Plan
-1. Expand level system to 20 levels with distinct environment per level group
-2. 5 background themes: morning amber city, golden dusk city, war-torn night city, dusty desert bazaar, final battle red/smoke
-3. Enemy scaling: more enemies, faster, higher HP each level
-4. Boss assignment: Rehman at L5, SP Aslam at L10, Major Iqbal at L15, Jameel Jamali at L20
-5. Draw characters using generated image assets (/assets/generated/char-*.png) loaded as Image objects on canvas — ensures real human figures, clear and sharp
-6. Fix character rendering: load images, draw at correct position, no splitting
-7. Keep all existing controls, bomb mechanic, minimap, copyright
+1. Backend (Motoko):
+   - Store student profiles (name, class, age)
+   - Store progress per student per subject/activity
+   - Store earned stars and badges
+   - Parent dashboard data access (read progress)
+   - Leaderboard (top students by stars)
+
+2. Frontend (React + TypeScript):
+   - Home/landing screen with app name, mascot, and class selection
+   - Class selector screen (Nursery, KG, 1, 2, 3, 4) with colorful cards
+   - Subject menu screen per class (icons for each subject)
+   - Individual activity/game screens for each subject
+   - Rewards/badge screen
+   - Progress screen
+   - Parent dashboard screen
+   - Bilingual toggle (EN/HI) that switches all UI text
+   - Animated mascot character encouraging kids
+   - Responsive, touch-friendly layout
