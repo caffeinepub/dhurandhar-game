@@ -1,16 +1,17 @@
 import { useCallback, useState } from "react";
 import { MATH_PROBLEMS } from "../../data/kidsData";
-import type { Lang } from "../../data/kidsData";
+import type { Lang, MathProblem } from "../../data/kidsData";
 
 interface MathGameProps {
   lang: Lang;
   onAnswer: (correct: boolean) => void;
+  problems?: MathProblem[];
 }
 
 function getOptions(correct: number): number[] {
   const opts = new Set<number>([correct]);
   while (opts.size < 3) {
-    const r = Math.max(0, correct + Math.floor(Math.random() * 7) - 3);
+    const r = Math.max(0, correct + Math.floor(Math.random() * 9) - 4);
     if (r !== correct) opts.add(r);
   }
   return [...opts].sort(() => Math.random() - 0.5);
@@ -32,13 +33,19 @@ function StarRow({
   return <>{items}</>;
 }
 
-export function MathGame({ lang, onAnswer }: MathGameProps) {
+export function MathGame({ lang, onAnswer, problems }: MathGameProps) {
+  const pool = problems ?? MATH_PROBLEMS;
   const [index, setIndex] = useState(0);
   const [selected, setSelected] = useState<number | null>(null);
 
-  const problem = MATH_PROBLEMS[index];
+  const problem = pool[index % pool.length];
   const correct =
-    problem.op === "+" ? problem.a + problem.b : problem.a - problem.b;
+    problem.op === "+"
+      ? problem.a + problem.b
+      : problem.op === "-"
+        ? problem.a - problem.b
+        : problem.a * problem.b;
+
   const [opts, setOpts] = useState<number[]>(() => getOptions(correct));
 
   const handleSelect = useCallback(
@@ -47,19 +54,25 @@ export function MathGame({ lang, onAnswer }: MathGameProps) {
       setSelected(opt);
       onAnswer(opt === correct);
       setTimeout(() => {
-        const ni = (index + 1) % MATH_PROBLEMS.length;
+        const ni = (index + 1) % pool.length;
         setIndex(ni);
         setSelected(null);
-        const newP = MATH_PROBLEMS[ni];
-        const newCorrect = newP.op === "+" ? newP.a + newP.b : newP.a - newP.b;
+        const newP = pool[ni % pool.length];
+        const newCorrect =
+          newP.op === "+"
+            ? newP.a + newP.b
+            : newP.op === "-"
+              ? newP.a - newP.b
+              : newP.a * newP.b;
         setOpts(getOptions(newCorrect));
       }, 1200);
     },
-    [selected, correct, index, onAnswer],
+    [selected, correct, index, pool, onAnswer],
   );
 
   const aCount = Math.min(problem.a, 10);
   const bCount = Math.min(problem.b, 10);
+  const showVisual = problem.a <= 10 && problem.b <= 10 && problem.op !== "×";
 
   return (
     <div
@@ -73,21 +86,23 @@ export function MathGame({ lang, onAnswer }: MathGameProps) {
         >
           {problem.a} {problem.op} {problem.b} = ?
         </div>
-        <div className="text-2xl">
-          <StarRow count={aCount} prefix="a" />
-          {problem.op === "+" && (
-            <>
-              {" "}
-              + <StarRow count={bCount} prefix="b" />
-            </>
-          )}
-          {problem.op === "-" && (
-            <>
-              {" "}
-              - <StarRow count={bCount} dim prefix="b" />
-            </>
-          )}
-        </div>
+        {showVisual && (
+          <div className="text-2xl">
+            <StarRow count={aCount} prefix="a" />
+            {problem.op === "+" && (
+              <>
+                {" "}
+                + <StarRow count={bCount} prefix="b" />
+              </>
+            )}
+            {problem.op === "-" && (
+              <>
+                {" "}
+                - <StarRow count={bCount} dim prefix="b" />
+              </>
+            )}
+          </div>
+        )}
         <p className="text-muted-foreground font-semibold">
           {lang === "en" ? "What is the answer?" : "जवाब क्या है?"}
         </p>
@@ -118,8 +133,8 @@ export function MathGame({ lang, onAnswer }: MathGameProps) {
 
       <div className="text-sm text-muted-foreground">
         {lang === "en"
-          ? `Problem ${index + 1} of ${MATH_PROBLEMS.length}`
-          : `प्रश्न ${index + 1} / ${MATH_PROBLEMS.length}`}
+          ? `Problem ${(index % pool.length) + 1} of ${pool.length}`
+          : `प्रश्न ${(index % pool.length) + 1} / ${pool.length}`}
       </div>
     </div>
   );

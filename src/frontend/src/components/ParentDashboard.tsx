@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CLASSES, SUBJECTS } from "../data/kidsData";
+import { ALL_SUBJECTS, CLASSES } from "../data/kidsData";
 import type { Lang } from "../data/kidsData";
 import type { AllProgress } from "../hooks/useProgress";
 
@@ -141,6 +141,10 @@ export function ParentDashboard({
             const totalStars = cp
               ? Object.values(cp).reduce((s, v) => s + v.stars, 0)
               : 0;
+            // Show subjects specific to this class
+            const classSubjects = cls.subjects
+              .map((id) => ALL_SUBJECTS.find((s) => s.id === id))
+              .filter(Boolean);
             return (
               <div
                 key={cls.id}
@@ -159,7 +163,8 @@ export function ParentDashboard({
                   </span>
                 </div>
                 <div className="grid grid-cols-3 gap-2">
-                  {SUBJECTS.map((sub) => {
+                  {classSubjects.map((sub) => {
+                    if (!sub) return null;
                     const sp = cp?.[sub.id];
                     return (
                       <div

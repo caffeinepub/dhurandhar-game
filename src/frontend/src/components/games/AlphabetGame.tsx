@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 import { ALPHABET } from "../../data/kidsData";
 import type { Lang } from "../../data/kidsData";
+import { speakLetter, speakWord } from "../../utils/speech";
 
 interface AlphabetGameProps {
   lang: Lang;
@@ -39,12 +40,19 @@ export function AlphabetGame({
     setQuizMode(true);
   };
 
+  // Speak the letter and word when card is shown
+  const handleSpeak = () => {
+    speakLetter(item.letter);
+    setTimeout(() => speakWord(item.word, "en"), 700);
+  };
+
   const handleOption = (opt: string) => {
     if (selectedOption) return;
     const correct = lang === "en" ? item.word : item.wordHi;
     setSelectedOption(opt);
     const isCorrect = opt === correct;
     onAnswer(isCorrect);
+    if (isCorrect) speakWord(item.word, "en");
     setTimeout(() => {
       setQuizMode(false);
       setSelectedOption(null);
@@ -71,12 +79,27 @@ export function AlphabetGame({
       data-ocid="alphabet.card"
     >
       <div className="w-full max-w-xs bg-white rounded-3xl shadow-card p-8 flex flex-col items-center gap-3">
-        <div
-          className="text-7xl font-black"
-          style={{ color: "#F36C2F", textShadow: "2px 4px 0 #C8551F" }}
+        {/* Letter — tap to hear */}
+        <button
+          type="button"
+          onClick={handleSpeak}
+          className="flex flex-col items-center gap-1 active:scale-95 transition-transform"
+          title="Tap to hear"
         >
-          {lang === "en" ? item.letter : item.letterHi}
-        </div>
+          <div
+            className="text-7xl font-black"
+            style={{ color: "#F36C2F", textShadow: "2px 4px 0 #C8551F" }}
+          >
+            {lang === "en" ? item.letter : item.letterHi}
+          </div>
+          <span
+            className="text-xs font-bold px-3 py-1 rounded-full"
+            style={{ background: "#FFF3ED", color: "#F36C2F" }}
+          >
+            🔊 {lang === "en" ? "Tap to hear" : "सुनने के लिए टैप करें"}
+          </span>
+        </button>
+
         <div className="text-8xl">{item.emoji}</div>
         <div className="text-2xl font-bold text-foreground">
           {lang === "en" ? item.word : item.wordHi}

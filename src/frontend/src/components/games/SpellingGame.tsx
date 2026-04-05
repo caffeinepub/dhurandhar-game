@@ -1,6 +1,7 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { SPELLING_WORDS } from "../../data/kidsData";
 import type { Lang } from "../../data/kidsData";
+import { speakSpelling, speakWord } from "../../utils/speech";
 
 interface SpellingGameProps {
   lang: Lang;
@@ -26,10 +27,11 @@ export function SpellingGame({
   const levelWords = SPELLING_WORDS.filter(
     (w) => w.classLevel === spellingLevel,
   );
-  const words = levelWords.length > 0 ? levelWords : SPELLING_WORDS;
+  const words = levelWords.length > 0 ? levelWords : SPELLING_WORDS.slice(0, 7);
 
   const [index, setIndex] = useState(0);
   const [selected, setSelected] = useState<string | null>(null);
+  const [spellingDone, setSpellingDone] = useState(false);
 
   const item = words[index % words.length];
   const correctLetter = item.word[item.missingIndex];
@@ -37,6 +39,12 @@ export function SpellingGame({
   const [opts, setOpts] = useState<string[]>(() =>
     getLetterOptions(correctLetter),
   );
+
+  // Speak the word when card loads
+  useEffect(() => {
+    const timer = setTimeout(() => speakWord(item.word, "en"), 400);
+    return () => clearTimeout(timer);
+  }, [item.word]);
 
   const displayWord = item.word
     .split("")
@@ -47,16 +55,27 @@ export function SpellingGame({
     (opt: string) => {
       if (selected) return;
       setSelected(opt);
-      onAnswer(opt === correctLetter);
+      const isCorrect = opt === correctLetter;
+      onAnswer(isCorrect);
+
+      if (isCorrect) {
+        setSpellingDone(true);
+        // Spell the word out loud then say the whole word
+        speakSpelling(item.word, () => {
+          setSpellingDone(false);
+        });
+      }
+
       setTimeout(() => {
         const ni = (index + 1) % words.length;
         setIndex(ni);
         setSelected(null);
+        setSpellingDone(false);
         const nextItem = words[ni % words.length];
         setOpts(getLetterOptions(nextItem.word[nextItem.missingIndex]));
-      }, 1200);
+      }, 2800);
     },
-    [selected, correctLetter, index, words, onAnswer],
+    [selected, correctLetter, index, words, onAnswer, item.word],
   );
 
   return (
@@ -66,20 +85,49 @@ export function SpellingGame({
     >
       <div className="w-full max-w-xs bg-white rounded-3xl shadow-card p-8 flex flex-col items-center gap-4">
         <div className="text-8xl">{item.emoji}</div>
-        <div className="text-2xl font-bold text-muted-foreground">
-          {lang === "en"
-            ? `${item.word.slice(0, item.missingIndex)}_${item.word.slice(item.missingIndex + 1)}`
-            : item.wordHi}
-        </div>
-        <div
-          className="text-3xl font-black tracking-[0.3em]"
-          style={{ color: "#25B7C7" }}
+
+        {/* Completed word with animation */}
+        {spellingDone ? (
+          <div
+            className="text-3xl font-black tracking-[0.2em] px-4 py-2 rounded-2xl"
+            style={{
+              color: "#22C55E",
+              background: "#E8F8EE",
+              border: "2px solid #22C55E",
+            }}
+          >
+            {item.word} ✅
+          </div>
+        ) : (
+          <div
+            className="text-3xl font-black tracking-[0.3em]"
+            style={{ color: "#25B7C7" }}
+          >
+            {displayWord}
+          </div>
+        )}
+
+        {spellingDone && (
+          <p className="text-sm font-bold" style={{ color: "#22C55E" }}>
+            🔊 {lang === "en" ? "Listen to the spelling!" : "वर्तनी सुनें!"}
+          </p>
+        )}
+
+        {!spellingDone && (
+          <p className="text-muted-foreground font-semibold text-sm">
+            {lang === "en" ? "Fill in the missing letter!" : "खाली जगह भरें!"}
+          </p>
+        )}
+
+        {/* Tap to hear word */}
+        <button
+          type="button"
+          onClick={() => speakWord(item.word, "en")}
+          className="text-xs font-bold px-3 py-1 rounded-full active:scale-95 transition-transform"
+          style={{ background: "#E8F9FB", color: "#25B7C7" }}
         >
-          {displayWord}
-        </div>
-        <p className="text-muted-foreground font-semibold text-sm">
-          {lang === "en" ? "Fill in the missing letter!" : "खाली जगह भरें!"}
-        </p>
+          🔊 {lang === "en" ? "Hear the word" : "शब्द सुनें"}
+        </button>
       </div>
 
       <div className="grid grid-cols-4 gap-3 w-full max-w-xs">

@@ -30,7 +30,7 @@ export interface AnimalItem {
 export interface MathProblem {
   a: number;
   b: number;
-  op: "+" | "-";
+  op: "+" | "-" | "×";
 }
 
 export interface SpellingWord {
@@ -41,6 +41,34 @@ export interface SpellingWord {
   classLevel: number;
 }
 
+export interface RhymeItem {
+  title: string;
+  titleHi: string;
+  emoji: string;
+  lines: string[];
+  linesHi: string[];
+}
+
+export interface SubjectDef {
+  id: string;
+  label: string;
+  labelHi: string;
+  emoji: string;
+  color: string;
+  bgColor: string;
+}
+
+export interface ClassDef {
+  id: string;
+  label: string;
+  labelHi: string;
+  emoji: string;
+  color: string;
+  spellingLevel: number;
+  subjects: string[];
+}
+
+// ─── ALPHABET ───────────────────────────────────────────────────────────────
 export const ALPHABET: AlphabetItem[] = [
   { letter: "A", letterHi: "अ", word: "Apple", wordHi: "सेब", emoji: "🍎" },
   { letter: "B", letterHi: "ब", word: "Ball", wordHi: "गेंद", emoji: "⚽" },
@@ -88,6 +116,7 @@ export const ALPHABET: AlphabetItem[] = [
   { letter: "Z", letterHi: "ज़", word: "Zebra", wordHi: "ज़ेबरा", emoji: "🦓" },
 ];
 
+// ─── NUMBERS ────────────────────────────────────────────────────────────────
 export const NUMBERS: NumberItem[] = [
   { num: 1, emojis: "⭐", wordEn: "One", wordHi: "एक" },
   { num: 2, emojis: "⭐⭐", wordEn: "Two", wordHi: "दो" },
@@ -111,6 +140,18 @@ export const NUMBERS: NumberItem[] = [
   { num: 20, emojis: "🎉x20", wordEn: "Twenty", wordHi: "बीस" },
 ];
 
+// Numbers 1-50 for Class 2
+export const NUMBERS_ADVANCED: NumberItem[] = [
+  ...NUMBERS,
+  { num: 21, emojis: "🌻x21", wordEn: "Twenty-One", wordHi: "इक्कीस" },
+  { num: 22, emojis: "🍦x22", wordEn: "Twenty-Two", wordHi: "बाईस" },
+  { num: 25, emojis: "🎯x25", wordEn: "Twenty-Five", wordHi: "पच्चीस" },
+  { num: 30, emojis: "🏆x30", wordEn: "Thirty", wordHi: "तीस" },
+  { num: 40, emojis: "🌟x40", wordEn: "Forty", wordHi: "चालीस" },
+  { num: 50, emojis: "💯x50", wordEn: "Fifty", wordHi: "पचास" },
+];
+
+// ─── SHAPES ─────────────────────────────────────────────────────────────────
 export const SHAPES: ShapeItem[] = [
   { name: "Circle", nameHi: "वृत्त", emoji: "⭕" },
   { name: "Square", nameHi: "वर्ग", emoji: "🟥" },
@@ -122,6 +163,27 @@ export const SHAPES: ShapeItem[] = [
   { name: "Oval", nameHi: "अंडाकार", emoji: "🥚" },
 ];
 
+// ─── COLORS ─────────────────────────────────────────────────────────────────
+export interface ColorItem {
+  name: string;
+  nameHi: string;
+  hex: string;
+  emoji: string;
+}
+export const COLORS: ColorItem[] = [
+  { name: "Red", nameHi: "लाल", hex: "#EF4444", emoji: "🔴" },
+  { name: "Blue", nameHi: "नीला", hex: "#3B82F6", emoji: "🔵" },
+  { name: "Green", nameHi: "हरा", hex: "#22C55E", emoji: "🟢" },
+  { name: "Yellow", nameHi: "पीला", hex: "#EAB308", emoji: "🟡" },
+  { name: "Orange", nameHi: "नारंगी", hex: "#F97316", emoji: "🟠" },
+  { name: "Purple", nameHi: "बैंगनी", hex: "#A855F7", emoji: "🟣" },
+  { name: "Pink", nameHi: "गुलाबी", hex: "#EC4899", emoji: "🩷" },
+  { name: "White", nameHi: "सफ़ेद", hex: "#F3F4F6", emoji: "⬜" },
+  { name: "Black", nameHi: "काला", hex: "#1F2937", emoji: "⬛" },
+  { name: "Brown", nameHi: "भूरा", hex: "#92400E", emoji: "🟫" },
+];
+
+// ─── ANIMALS ────────────────────────────────────────────────────────────────
 export const ANIMALS: AnimalItem[] = [
   { name: "Dog", nameHi: "कुत्ता", emoji: "🐶" },
   { name: "Cat", nameHi: "बिल्ली", emoji: "🐱" },
@@ -145,6 +207,45 @@ export const ANIMALS: AnimalItem[] = [
   { name: "Zebra", nameHi: "ज़ेबरा", emoji: "🦓" },
 ];
 
+// ─── FRUITS & VEGETABLES (Class 1) ──────────────────────────────────────────
+export interface FruitItem {
+  name: string;
+  nameHi: string;
+  emoji: string;
+}
+export const FRUITS: FruitItem[] = [
+  { name: "Apple", nameHi: "सेब", emoji: "🍎" },
+  { name: "Mango", nameHi: "आम", emoji: "🥭" },
+  { name: "Banana", nameHi: "केला", emoji: "🍌" },
+  { name: "Orange", nameHi: "संतरा", emoji: "🍊" },
+  { name: "Grapes", nameHi: "अंगूर", emoji: "🍇" },
+  { name: "Watermelon", nameHi: "तरबूज", emoji: "🍉" },
+  { name: "Pineapple", nameHi: "अनानास", emoji: "🍍" },
+  { name: "Strawberry", nameHi: "स्ट्रॉबेरी", emoji: "🍓" },
+  { name: "Tomato", nameHi: "टमाटर", emoji: "🍅" },
+  { name: "Coconut", nameHi: "नारियल", emoji: "🥥" },
+];
+
+// ─── BODY PARTS (Class 2) ────────────────────────────────────────────────────
+export interface BodyPartItem {
+  name: string;
+  nameHi: string;
+  emoji: string;
+}
+export const BODY_PARTS: BodyPartItem[] = [
+  { name: "Eyes", nameHi: "आँखें", emoji: "👀" },
+  { name: "Nose", nameHi: "नाक", emoji: "👃" },
+  { name: "Ears", nameHi: "कान", emoji: "👂" },
+  { name: "Mouth", nameHi: "मुँह", emoji: "👄" },
+  { name: "Hands", nameHi: "हाथ", emoji: "✋" },
+  { name: "Legs", nameHi: "पैर", emoji: "🦵" },
+  { name: "Head", nameHi: "सिर", emoji: "🗣️" },
+  { name: "Hair", nameHi: "बाल", emoji: "💇" },
+  { name: "Teeth", nameHi: "दाँत", emoji: "🦷" },
+  { name: "Fingers", nameHi: "उँगलियाँ", emoji: "🖐️" },
+];
+
+// ─── MATH PROBLEMS ──────────────────────────────────────────────────────────
 export const MATH_PROBLEMS: MathProblem[] = [
   { a: 1, b: 1, op: "+" },
   { a: 2, b: 3, op: "+" },
@@ -154,22 +255,45 @@ export const MATH_PROBLEMS: MathProblem[] = [
   { a: 7, b: 2, op: "+" },
   { a: 5, b: 5, op: "+" },
   { a: 8, b: 1, op: "+" },
-  { a: 3, b: 7, op: "+" },
-  { a: 9, b: 1, op: "+" },
   { a: 5, b: 2, op: "-" },
   { a: 7, b: 3, op: "-" },
   { a: 8, b: 4, op: "-" },
   { a: 6, b: 2, op: "-" },
   { a: 9, b: 5, op: "-" },
   { a: 10, b: 3, op: "-" },
-  { a: 4, b: 4, op: "+" },
-  { a: 6, b: 6, op: "+" },
-  { a: 7, b: 8, op: "+" },
-  { a: 10, b: 10, op: "+" },
 ];
 
+export const MATH_PROBLEMS_CLASS3: MathProblem[] = [
+  { a: 12, b: 8, op: "+" },
+  { a: 15, b: 7, op: "+" },
+  { a: 23, b: 14, op: "+" },
+  { a: 31, b: 19, op: "+" },
+  { a: 45, b: 25, op: "+" },
+  { a: 20, b: 8, op: "-" },
+  { a: 35, b: 17, op: "-" },
+  { a: 50, b: 23, op: "-" },
+  { a: 4, b: 3, op: "×" },
+  { a: 5, b: 5, op: "×" },
+  { a: 6, b: 4, op: "×" },
+  { a: 7, b: 3, op: "×" },
+];
+
+export const MATH_PROBLEMS_CLASS4: MathProblem[] = [
+  { a: 24, b: 36, op: "+" },
+  { a: 58, b: 43, op: "+" },
+  { a: 75, b: 28, op: "-" },
+  { a: 91, b: 47, op: "-" },
+  { a: 8, b: 7, op: "×" },
+  { a: 9, b: 6, op: "×" },
+  { a: 12, b: 4, op: "×" },
+  { a: 11, b: 8, op: "×" },
+  { a: 6, b: 9, op: "×" },
+  { a: 7, b: 8, op: "×" },
+];
+
+// ─── SPELLING WORDS ─────────────────────────────────────────────────────────
 export const SPELLING_WORDS: SpellingWord[] = [
-  // Nursery/KG - level 0
+  // Nursery - level 0 (2-3 letter words)
   {
     word: "CAT",
     wordHi: "CAT - बिल्ली",
@@ -205,7 +329,21 @@ export const SPELLING_WORDS: SpellingWord[] = [
     missingIndex: 1,
     classLevel: 0,
   },
-  // Class 1-2 - level 1
+  {
+    word: "BAT",
+    wordHi: "BAT - चमगादड़",
+    emoji: "🦇",
+    missingIndex: 0,
+    classLevel: 0,
+  },
+  {
+    word: "HEN",
+    wordHi: "HEN - मुर्गी",
+    emoji: "🐔",
+    missingIndex: 2,
+    classLevel: 0,
+  },
+  // KG - level 1 (3-4 letter words)
   {
     word: "BOOK",
     wordHi: "BOOK - किताब",
@@ -241,7 +379,21 @@ export const SPELLING_WORDS: SpellingWord[] = [
     missingIndex: 2,
     classLevel: 1,
   },
-  // Class 3-4 - level 2
+  {
+    word: "DUCK",
+    wordHi: "DUCK - बत्तख",
+    emoji: "🦆",
+    missingIndex: 1,
+    classLevel: 1,
+  },
+  {
+    word: "MILK",
+    wordHi: "MILK - दूध",
+    emoji: "🥛",
+    missingIndex: 3,
+    classLevel: 1,
+  },
+  // Class 1 - level 2 (4-5 letter words)
   {
     word: "APPLE",
     wordHi: "APPLE - सेब",
@@ -257,29 +409,272 @@ export const SPELLING_WORDS: SpellingWord[] = [
     classLevel: 2,
   },
   {
+    word: "CHAIR",
+    wordHi: "CHAIR - कुर्सी",
+    emoji: "🪑",
+    missingIndex: 1,
+    classLevel: 2,
+  },
+  {
+    word: "MANGO",
+    wordHi: "MANGO - आम",
+    emoji: "🥭",
+    missingIndex: 4,
+    classLevel: 2,
+  },
+  {
+    word: "GRAPE",
+    wordHi: "GRAPE - अंगूर",
+    emoji: "🍇",
+    missingIndex: 0,
+    classLevel: 2,
+  },
+  {
+    word: "TABLE",
+    wordHi: "TABLE - मेज़",
+    emoji: "🪑",
+    missingIndex: 2,
+    classLevel: 2,
+  },
+  // Class 2 - level 3 (5 letter words)
+  {
+    word: "BREAD",
+    wordHi: "BREAD - रोटी",
+    emoji: "🍞",
+    missingIndex: 2,
+    classLevel: 3,
+  },
+  {
     word: "CLOUD",
     wordHi: "CLOUD - बादल",
     emoji: "☁️",
     missingIndex: 4,
-    classLevel: 2,
+    classLevel: 3,
   },
   {
     word: "GRASS",
     wordHi: "GRASS - घास",
     emoji: "🌿",
     missingIndex: 1,
-    classLevel: 2,
+    classLevel: 3,
   },
   {
     word: "TIGER",
     wordHi: "TIGER - बाघ",
     emoji: "🐯",
     missingIndex: 0,
-    classLevel: 2,
+    classLevel: 3,
+  },
+  {
+    word: "WATER",
+    wordHi: "WATER - पानी",
+    emoji: "💧",
+    missingIndex: 3,
+    classLevel: 3,
+  },
+  {
+    word: "PLANT",
+    wordHi: "PLANT - पौधा",
+    emoji: "🌱",
+    missingIndex: 2,
+    classLevel: 3,
+  },
+  // Class 3 - level 4 (6 letter words)
+  {
+    word: "ORANGE",
+    wordHi: "ORANGE - संतरा",
+    emoji: "🍊",
+    missingIndex: 3,
+    classLevel: 4,
+  },
+  {
+    word: "CASTLE",
+    wordHi: "CASTLE - महल",
+    emoji: "🏰",
+    missingIndex: 4,
+    classLevel: 4,
+  },
+  {
+    word: "FLOWER",
+    wordHi: "FLOWER - फूल",
+    emoji: "🌸",
+    missingIndex: 1,
+    classLevel: 4,
+  },
+  {
+    word: "FOREST",
+    wordHi: "FOREST - जंगल",
+    emoji: "🌲",
+    missingIndex: 2,
+    classLevel: 4,
+  },
+  {
+    word: "BUTTER",
+    wordHi: "BUTTER - मक्खन",
+    emoji: "🧈",
+    missingIndex: 5,
+    classLevel: 4,
+  },
+  // Class 4 - level 5 (7+ letter words)
+  {
+    word: "DOLPHIN",
+    wordHi: "DOLPHIN - डॉल्फिन",
+    emoji: "🐬",
+    missingIndex: 3,
+    classLevel: 5,
+  },
+  {
+    word: "RAINBOW",
+    wordHi: "RAINBOW - इंद्रधनुष",
+    emoji: "🌈",
+    missingIndex: 4,
+    classLevel: 5,
+  },
+  {
+    word: "CAPTAIN",
+    wordHi: "CAPTAIN - कप्तान",
+    emoji: "⚓",
+    missingIndex: 2,
+    classLevel: 5,
+  },
+  {
+    word: "KITCHEN",
+    wordHi: "KITCHEN - रसोई",
+    emoji: "🍳",
+    missingIndex: 5,
+    classLevel: 5,
+  },
+  {
+    word: "CHICKEN",
+    wordHi: "CHICKEN - मुर्गा",
+    emoji: "🐔",
+    missingIndex: 3,
+    classLevel: 5,
   },
 ];
 
-export const CLASSES = [
+// ─── NURSERY RHYMES ──────────────────────────────────────────────────────────
+export const NURSERY_RHYMES: RhymeItem[] = [
+  {
+    title: "Twinkle Twinkle",
+    titleHi: "टिमटिम तारा",
+    emoji: "⭐",
+    lines: [
+      "Twinkle, twinkle, little star,",
+      "How I wonder what you are!",
+      "Up above the world so high,",
+      "Like a diamond in the sky.",
+      "Twinkle, twinkle, little star,",
+      "How I wonder what you are!",
+    ],
+    linesHi: [
+      "टिमटिम टिमटिम छोटे तारे,",
+      "कैसे लगते हो तुम न्यारे!",
+      "आसमान में ऊपर बहुत,",
+      "जैसे हीरा चमके सदा।",
+      "टिमटिम टिमटिम छोटे तारे,",
+      "कैसे लगते हो तुम न्यारे!",
+    ],
+  },
+  {
+    title: "Baa Baa Black Sheep",
+    titleHi: "काली भेड़",
+    emoji: "🐑",
+    lines: [
+      "Baa baa black sheep,",
+      "Have you any wool?",
+      "Yes sir, yes sir,",
+      "Three bags full!",
+      "One for the master,",
+      "One for the dame,",
+      "One for the little boy",
+      "Who lives down the lane.",
+    ],
+    linesHi: [
+      "बाबा काली भेड़,",
+      "क्या तेरे पास ऊन है?",
+      "हाँ जी, हाँ जी,",
+      "तीन थैले भरे हैं!",
+      "एक मालिक के लिए,",
+      "एक मालकिन के लिए,",
+      "एक छोटे बच्चे के लिए",
+      "जो गली में रहता है।",
+    ],
+  },
+  {
+    title: "Humpty Dumpty",
+    titleHi: "हम्प्टी डम्प्टी",
+    emoji: "🥚",
+    lines: [
+      "Humpty Dumpty sat on a wall,",
+      "Humpty Dumpty had a great fall.",
+      "All the king's horses,",
+      "And all the king's men,",
+      "Couldn't put Humpty together again!",
+    ],
+    linesHi: [
+      "हम्प्टी डम्प्टी दीवार पर बैठा,",
+      "हम्प्टी डम्प्टी नीचे गिरा।",
+      "राजा के सब घोड़े,",
+      "और राजा के सब आदमी,",
+      "हम्प्टी को जोड़ न पाए!",
+    ],
+  },
+  {
+    title: "Jack and Jill",
+    titleHi: "जैक और जिल",
+    emoji: "🪣",
+    lines: [
+      "Jack and Jill went up the hill,",
+      "To fetch a pail of water.",
+      "Jack fell down and broke his crown,",
+      "And Jill came tumbling after!",
+    ],
+    linesHi: [
+      "जैक और जिल पहाड़ पर चढ़े,",
+      "पानी लाने के लिए।",
+      "जैक गिरा और सिर फूटा,",
+      "और जिल भी आ गिरी!",
+    ],
+  },
+  {
+    title: "Johny Johny",
+    titleHi: "जॉनी जॉनी",
+    emoji: "🍬",
+    lines: [
+      "Johny Johny, yes papa!",
+      "Eating sugar? No papa!",
+      "Telling lies? No papa!",
+      "Open your mouth — Ha ha ha!",
+    ],
+    linesHi: [
+      "जॉनी जॉनी, हाँ पापा!",
+      "चीनी खाते? नहीं पापा!",
+      "झूठ बोलते? नहीं पापा!",
+      "मुँह खोलो — हा हा हा!",
+    ],
+  },
+  {
+    title: "Wheels on the Bus",
+    titleHi: "बस के पहिए",
+    emoji: "🚌",
+    lines: [
+      "The wheels on the bus go round and round,",
+      "Round and round, round and round.",
+      "The wheels on the bus go round and round,",
+      "All through the town!",
+    ],
+    linesHi: [
+      "बस के पहिए घूमते हैं,",
+      "घूमते हैं, घूमते हैं।",
+      "बस के पहिए घूमते हैं,",
+      "पूरे शहर में!",
+    ],
+  },
+];
+
+// ─── CLASS DEFINITIONS ───────────────────────────────────────────────────────
+export const CLASSES: ClassDef[] = [
   {
     id: "nursery",
     label: "Nursery",
@@ -287,6 +682,7 @@ export const CLASSES = [
     emoji: "🌸",
     color: "#F36C2F",
     spellingLevel: 0,
+    subjects: ["rhymes", "alphabet", "numbers", "shapes", "colors", "animals"],
   },
   {
     id: "kg",
@@ -294,7 +690,8 @@ export const CLASSES = [
     labelHi: "केजी",
     emoji: "🌼",
     color: "#25B7C7",
-    spellingLevel: 0,
+    spellingLevel: 1,
+    subjects: ["rhymes", "alphabet", "numbers", "shapes", "colors", "spelling"],
   },
   {
     id: "class1",
@@ -302,7 +699,8 @@ export const CLASSES = [
     labelHi: "कक्षा 1",
     emoji: "🌟",
     color: "#F7C948",
-    spellingLevel: 1,
+    spellingLevel: 2,
+    subjects: ["alphabet", "numbers", "animals", "fruits", "spelling", "math"],
   },
   {
     id: "class2",
@@ -310,7 +708,15 @@ export const CLASSES = [
     labelHi: "कक्षा 2",
     emoji: "🚀",
     color: "#34A853",
-    spellingLevel: 1,
+    spellingLevel: 3,
+    subjects: [
+      "alphabet",
+      "numbers",
+      "animals",
+      "bodyparts",
+      "spelling",
+      "math",
+    ],
   },
   {
     id: "class3",
@@ -318,7 +724,8 @@ export const CLASSES = [
     labelHi: "कक्षा 3",
     emoji: "🎯",
     color: "#F36C2F",
-    spellingLevel: 2,
+    spellingLevel: 4,
+    subjects: ["alphabet", "numbers", "animals", "spelling", "math3", "fruits"],
   },
   {
     id: "class4",
@@ -326,11 +733,28 @@ export const CLASSES = [
     labelHi: "कक्षा 4",
     emoji: "🏆",
     color: "#25B7C7",
-    spellingLevel: 2,
+    spellingLevel: 5,
+    subjects: [
+      "alphabet",
+      "numbers",
+      "animals",
+      "spelling",
+      "math4",
+      "bodyparts",
+    ],
   },
 ];
 
-export const SUBJECTS = [
+// ─── ALL SUBJECT DEFINITIONS ─────────────────────────────────────────────────
+export const ALL_SUBJECTS: SubjectDef[] = [
+  {
+    id: "rhymes",
+    label: "Rhymes",
+    labelHi: "तुकबंदी",
+    emoji: "🎵",
+    color: "#F36C2F",
+    bgColor: "#FFF3ED",
+  },
   {
     id: "alphabet",
     label: "Alphabet",
@@ -349,11 +773,19 @@ export const SUBJECTS = [
   },
   {
     id: "shapes",
-    label: "Shapes & Colors",
-    labelHi: "आकार और रंग",
-    emoji: "🎨",
+    label: "Shapes",
+    labelHi: "आकार",
+    emoji: "🔺",
     color: "#F7C948",
     bgColor: "#FFFBEA",
+  },
+  {
+    id: "colors",
+    label: "Colors",
+    labelHi: "रंग",
+    emoji: "🎨",
+    color: "#A855F7",
+    bgColor: "#F5F0FF",
   },
   {
     id: "animals",
@@ -364,12 +796,20 @@ export const SUBJECTS = [
     bgColor: "#E8F8EE",
   },
   {
-    id: "math",
-    label: "Math",
-    labelHi: "गणित",
-    emoji: "➕",
-    color: "#F36C2F",
-    bgColor: "#FFF3ED",
+    id: "fruits",
+    label: "Fruits",
+    labelHi: "फल",
+    emoji: "🍎",
+    color: "#EF4444",
+    bgColor: "#FEF2F2",
+  },
+  {
+    id: "bodyparts",
+    label: "Body Parts",
+    labelHi: "शरीर के अंग",
+    emoji: "🧠",
+    color: "#EC4899",
+    bgColor: "#FDF2F8",
   },
   {
     id: "spelling",
@@ -378,5 +818,29 @@ export const SUBJECTS = [
     emoji: "✏️",
     color: "#25B7C7",
     bgColor: "#E8F9FB",
+  },
+  {
+    id: "math",
+    label: "Math",
+    labelHi: "गणित",
+    emoji: "➕",
+    color: "#F36C2F",
+    bgColor: "#FFF3ED",
+  },
+  {
+    id: "math3",
+    label: "Math (×÷)",
+    labelHi: "गणित (×÷)",
+    emoji: "✖️",
+    color: "#F36C2F",
+    bgColor: "#FFF3ED",
+  },
+  {
+    id: "math4",
+    label: "Math (Advanced)",
+    labelHi: "गणित (उन्नत)",
+    emoji: "🔢",
+    color: "#F36C2F",
+    bgColor: "#FFF3ED",
   },
 ];
